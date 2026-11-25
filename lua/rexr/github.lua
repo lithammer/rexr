@@ -8,7 +8,7 @@ query($owner: String!, $name: String!, $number: Int!) {
         nodes {
           isResolved isOutdated path diffSide
           line startLine originalLine originalStartLine
-          comments(first: 50) { nodes { databaseId author { login } body url } }
+          comments(first: 50) { nodes { databaseId author { login } authorAssociation body url } }
         }
       }
     }
