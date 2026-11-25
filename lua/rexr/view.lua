@@ -327,9 +327,17 @@ end
 
 function M.send_here()
   local h = here()
-  if h then
-    send(comments.at(h.path, M.sides, h.lnum))
+  if not h then
+    return
   end
+  local all = comments.at(h.path, M.sides, h.lnum)
+  local unsent = vim.tbl_filter(function(t)
+    return not t.sent
+  end, all)
+  if #all > 0 and #unsent == 0 then
+    return notify("already sent")
+  end
+  send(unsent)
 end
 
 function M.send_all()

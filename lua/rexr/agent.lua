@@ -28,7 +28,12 @@ function M.state()
   return rec and rec.state or "unknown"
 end
 
---- Paste text into the agent's prompt without submitting it.
+--- Paste text into the agent's prompt, on a line of its own, without
+--- submitting it. The prompt may hold a half-typed draft with the cursor
+--- anywhere in it. Ctrl-E moves to the end of the cursor's line in Claude
+--- Code, Codex and readline alike; no key reaches the end of the whole
+--- draft in all of them, and Enter would submit it. The leading newline
+--- then starts a line, so the text never splits the person's sentence.
 ---@return boolean ok, string? err
 function M.send(text)
   if not M.block then
@@ -41,7 +46,11 @@ function M.send(text)
   if state == "blocked" then
     return false, "agent is waiting on a prompt"
   end
-  local event = { block_id = M.block, event = { type = "paste", payload = { text = text } } }
+  local _, kerr = rex({ "send-key", "-b", M.block, "ctrl+e" })
+  if kerr then
+    return false, kerr
+  end
+  local event = { block_id = M.block, event = { type = "paste", payload = { text = "\n" .. text } } }
   local _, perr = rex({ "api", "call", "-s", M.block, "block.event", "-" }, vim.json.encode(event))
   if perr then
     return false, perr
