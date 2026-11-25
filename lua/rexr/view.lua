@@ -27,7 +27,7 @@ rexr
   c        comment on line or visual range
   x        delete draft under cursor
   K        show comments on this line
-  s        send comments on this line to the agent
+  s        send comments on this line to the agent (twice to resend)
   S        send all unsent drafts to the agent
   R        refresh files and GitHub threads
   q        quit]]
@@ -334,10 +334,18 @@ function M.send_here()
   local unsent = vim.tbl_filter(function(t)
     return not t.sent
   end, all)
-  if #all > 0 and #unsent == 0 then
-    return notify("already sent")
+  if #all == 0 or #unsent > 0 then
+    return send(unsent)
   end
-  send(unsent)
+  -- Sent means pasted; the person may have cleared the prompt since. A
+  -- second press on the same line soon after says they mean to resend.
+  local key, now = h.path .. ":" .. h.lnum, vim.uv.now()
+  if M.resend and M.resend.key == key and now - M.resend.at < 2000 then
+    M.resend = nil
+    return send(all)
+  end
+  M.resend = { key = key, at = now }
+  notify("already sent; press s again to resend")
 end
 
 function M.send_all()
