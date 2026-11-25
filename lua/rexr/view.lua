@@ -9,7 +9,7 @@ local M = {
   wins = {}, ---@type {files: integer, LEFT: integer, RIGHT: integer}
   bufs = {}, ---@type {LEFT: integer, RIGHT: integer}
   header = 0, -- lines above the first file in the file list
-  seq = 0,
+  seq = 0, -- numbers comment buffers, which need a name for :w
 }
 
 local HELP = [[
@@ -34,18 +34,18 @@ local function winbar(text)
   return " " .. text:gsub("%%", "%%%%")
 end
 
---- A throwaway buffer that wipes itself once no window shows it.
-local function scratch(lines, name, ft)
-  M.seq = M.seq + 1
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].bufhidden = "wipe"
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.api.nvim_buf_set_name(buf, ("rexr://%d/%s"):format(M.seq, name))
-  vim.bo[buf].modifiable = false
-  if ft then
-    vim.bo[buf].filetype = ft
-  end
+local function load(name)
+  local buf = vim.fn.bufadd(name)
+  vim.fn.bufload(buf)
   return buf
+end
+
+--- Highlight with treesitter when a parser for the filetype is installed;
+--- otherwise the regex syntax stays.
+local function highlight(buf)
+  if vim.bo[buf].filetype ~= "" then
+    pcall(vim.treesitter.start, buf)
+  end
 end
 
 --- Where the cursor is, when it's in one of the diff windows.
@@ -113,25 +113,21 @@ function M.show(i)
   M.index = i
   local base = M.review.base
   local base_path = f.old or f.path
-  local before = (f.status == "A" or f.status == "?") and {} or (git.show(base, base_path) or {})
-  local ft = vim.filetype.match({ filename = f.path, contents = before })
 
   vim.cmd("diffoff!")
-  local left = scratch(before, "base/" .. base_path, ft)
+  local left = load(("rexr://%s/%s"):format(base, base_path))
   local right
   if f.status == "D" then
-    right = scratch({}, "deleted/" .. f.path, ft)
+    right = load("rexr://deleted/" .. f.path)
   else
-    right = vim.fn.bufadd(M.review.root .. "/" .. f.path)
-    vim.fn.bufload(right)
+    right = load(M.review.root .. "/" .. f.path)
     vim.bo[right].buflisted = true
-    if vim.bo[right].filetype == "" and ft then
-      vim.bo[right].filetype = ft
-    end
     -- Review, don't edit: `:set modifiable` to change the file anyway.
     vim.bo[right].modifiable = false
   end
   M.bufs = { LEFT = left, RIGHT = right }
+  highlight(left)
+  highlight(right)
 
   vim.api.nvim_win_set_buf(M.wins.LEFT, left)
   vim.api.nvim_win_set_buf(M.wins.RIGHT, right)
@@ -143,7 +139,9 @@ function M.show(i)
       vim.cmd("diffthis")
     end)
     vim.wo[win].number = true
-    vim.wo[win].signcolumn = "yes"
+    -- Comment signs take the place of the line number; the space matters
+    -- in a split beside the agent.
+    vim.wo[win].signcolumn = "number"
     vim.wo[win].cursorline = true
     vim.wo[win].wrap = false
     map(M.bufs[side])
@@ -171,7 +169,7 @@ local function input(title, cb)
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "markdown"
   M.seq = M.seq + 1
-  vim.api.nvim_buf_set_name(buf, "rexr://comment/" .. M.seq)
+  vim.api.nvim_buf_set_name(buf, "rexr-comment://" .. M.seq)
   local width = math.min(80, vim.o.columns - 4)
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",

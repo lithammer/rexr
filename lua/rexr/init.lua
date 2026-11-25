@@ -34,6 +34,12 @@ function M.start(args)
   -- --clean still shares the user's swap directory, and a swap file from
   -- their own editor makes bufload fail with E325. The reviewer doesn't edit.
   vim.o.swapfile = false
+  -- Borrow the user's installed treesitter parsers and queries. Startup has
+  -- already sourced plugin/ files, so adding the directory now runs none of
+  -- its plugin code.
+  vim.opt.rtp:append(vim.fn.stdpath("data") .. "/site")
+  vim.treesitter.language.register("bash", "sh") -- nvim-treesitter's job, absent here
+  vim.opt.diffopt:append("foldcolumn:0")
   local review = { root = root, git_dir = git.git_dir() }
 
   if mode ~= "diff" then
