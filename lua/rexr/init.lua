@@ -78,6 +78,19 @@ function M.start(args)
   end
 end
 
+--- Entry point for `rexr show`: the threads named by space-separated IDs.
+---@return string
+function M.show(ids)
+  local out = {}
+  for _, id in ipairs(vim.split(ids, " ", { trimempty = true })) do
+    local t = comments.find(function(t)
+      return t.id == id
+    end)[1]
+    out[#out + 1] = t and comments.detail({ t }) or ("[%s] no such comment\n"):format(id)
+  end
+  return table.concat(out, "\n")
+end
+
 --- Entry point for `rexr reply`: the file holds the comment ID on its first
 --- line and the reply after it.
 ---@return string "ok" or why the reply was refused
