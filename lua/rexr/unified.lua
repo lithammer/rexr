@@ -6,6 +6,9 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("rexr.diff")
 local CONTEXT = 3
+-- Above treesitter's highlights, whose foregrounds still show through the
+-- background-only tints; a changed word's tint sits one above its line's.
+local TINT = 4000
 
 -- Tint changed lines with the colour scheme's diff backgrounds alone. Its
 -- DiffAdd may also set a foreground (the default one does), which would
@@ -18,6 +21,11 @@ local function tints()
   local dark = vim.o.background ~= "light"
   vim.api.nvim_set_hl(0, "RexrAdded", { bg = bg("DiffAdd") or (dark and "NvimDarkGreen" or "NvimLightGreen") })
   vim.api.nvim_set_hl(0, "RexrRemoved", { bg = bg("DiffDelete") or (dark and "NvimDarkRed" or "NvimLightRed") })
+  -- Changed words within a line, as :diffthis marks them: DiffTextAdd on
+  -- the new line, DiffText on the old one.
+  local text = bg("DiffText") or (dark and "NvimDarkCyan" or "NvimLightCyan")
+  vim.api.nvim_set_hl(0, "RexrAddedText", { bg = bg("DiffTextAdd") or text })
+  vim.api.nvim_set_hl(0, "RexrRemovedText", { bg = text })
 end
 tints()
 vim.api.nvim_create_autocmd("ColorScheme", { callback = tints })
@@ -51,6 +59,95 @@ local function diffopt()
     end
   end
   return opts
+end
+
+--- How 'diffopt' marks changes within a line: none, simple, char or word.
+local function inline_mode()
+  for _, item in ipairs(vim.opt.diffopt:get()) do
+    local mode = item:match("^inline:(%a+)$")
+    if mode then
+      return mode
+    end
+  end
+  return "simple"
+end
+
+-- Longer lines, such as minified code, aren't worth a token diff.
+local MAX_INLINE = 2000
+
+--- A line cut into tokens { text, first byte (0-based), past the last }:
+--- one per character, or for words, as 'diffopt' defines them: runs of
+--- word characters ('iskeyword') or of blanks, any other character alone,
+--- emoji and CJK included.
+local function tokens(line, mode)
+  local out = {}
+  local pos = vim.str_utf_pos(line)
+  for i, p in ipairs(pos) do
+    local e = (pos[i + 1] or #line + 1) - 1
+    local c = line:sub(p, e)
+    local class = mode == "word" and vim.fn.charclass(c) or nil
+    local prev = out[#out]
+    if prev and (class == 0 or class == 2) and prev.class == class then
+      prev[1], prev[3] = prev[1] .. c, e
+    else
+      out[#out + 1] = { c, p - 1, e, class = class }
+    end
+  end
+  return out
+end
+
+--- Join changed ranges split by a short run of non-word characters, as
+--- 'diffopt' inline:word does for gaps of five bytes or less.
+local function merge(ranges, line)
+  local out = {}
+  for _, r in ipairs(ranges) do
+    local prev = out[#out]
+    local gap = prev and line:sub(prev[2] + 1, r[1])
+    if gap and #gap <= 5 and not gap:find("[%w_]") then
+      prev[2] = r[2]
+    else
+      out[#out + 1] = { r[1], r[2] }
+    end
+  end
+  return out
+end
+
+--- The changed byte ranges { first, past the last } of a removed line and
+--- the added line it became. Neovim keeps its own inline diff inside diff
+--- mode, so diff the lines' tokens with the same engine, one per line.
+local function inline(old, new, mode)
+  if #old > MAX_INLINE or #new > MAX_INLINE then
+    return {}, {}
+  end
+  if mode == "simple" then
+    local p, s = 0, 0
+    while p < #old and p < #new and old:byte(p + 1) == new:byte(p + 1) do
+      p = p + 1
+    end
+    while s < #old - p and s < #new - p and old:byte(#old - s) == new:byte(#new - s) do
+      s = s + 1
+    end
+    return { { p, #old - s } }, { { p, #new - s } }
+  end
+  local a, b = tokens(old, mode), tokens(new, mode)
+  local function join(t)
+    return text(vim.tbl_map(function(k)
+      return k[1]
+    end, t))
+  end
+  local ra, rb = {}, {}
+  for _, h in ipairs(vim.text.diff(join(a), join(b), { result_type = "indices" })) do
+    if h[2] > 0 then
+      ra[#ra + 1] = { a[h[1]][2], a[h[1] + h[2] - 1][3] }
+    end
+    if h[4] > 0 then
+      rb[#rb + 1] = { b[h[3]][2], b[h[3] + h[4] - 1][3] }
+    end
+  end
+  if mode == "word" then
+    return merge(ra, old), merge(rb, new)
+  end
+  return ra, rb
 end
 
 ---@return rexr.Hunk[]
@@ -135,23 +232,37 @@ local function syntax(before, ft, ranges)
 end
 
 --- A removed line as virtual text chunks: its syntax colours over the
---- removed tint, tabs expanded, padded to `width` so the tint spans the line.
-local function chunks(line, spans, ts, width)
-  local group = {}
+--- removed tint, its `changed` byte ranges tinted as changed words, tabs
+--- expanded, padded to `width` so the tint spans the line.
+local function chunks(line, spans, ts, width, changed)
+  local group, hot = {}, {}
   for _, sp in ipairs(spans or {}) do
     for c = sp[1] + 1, math.min(sp[2], #line) do
       group[c] = sp[3] -- later captures are the more specific ones
     end
   end
+  for _, r in ipairs(changed or {}) do
+    for c = r[1] + 1, math.min(r[2], #line) do
+      hot[c] = true
+    end
+  end
   local out, col, i = {}, 0, 1
   while i <= #line do
     local j = i
-    while j < #line and group[j + 1] == group[i] do
+    while j < #line and group[j + 1] == group[i] and hot[j + 1] == hot[i] do
       j = j + 1
     end
     local seg
     seg, col = expand(line:sub(i, j), ts, col)
-    out[#out + 1] = { seg, group[i] and { "RexrRemoved", group[i] } or "RexrRemoved" }
+    -- Stacked groups: the last one's background wins, the syntax colour stays.
+    local hl = { "RexrRemoved" }
+    if group[i] then
+      hl[#hl + 1] = group[i]
+    end
+    if hot[i] then
+      hl[#hl + 1] = "RexrRemovedText"
+    end
+    out[#out + 1] = { seg, hl }
     i = j + 1
   end
   out[#out + 1] = { string.rep(" ", math.max(width - col, 0)), "RexrRemoved" }
@@ -174,15 +285,42 @@ function M.render(win, hunks, before)
     end
   end
   local spans = syntax(before, vim.bo[buf].filetype, removed)
+  local after = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local mode = inline_mode()
   for _, h in ipairs(hunks) do
     local sa, ca, sb, cb = h[1], h[2], h[3], h[4]
+    -- A range, not line_hl_group: a line highlight draws over every
+    -- character highlight, the changed-word tint below included.
     for row = sb, sb + cb - 1 do
-      vim.api.nvim_buf_set_extmark(buf, ns, row - 1, 0, { line_hl_group = "RexrAdded" })
+      vim.api.nvim_buf_set_extmark(buf, ns, row - 1, 0, {
+        end_col = #(after[row] or ""),
+        hl_group = "RexrAdded",
+        hl_eol = true,
+        priority = TINT,
+      })
+    end
+    -- Pair removed and added lines in order, as linematch has aligned them;
+    -- lines beyond the shorter side are wholly removed or added.
+    local changed = {}
+    if mode ~= "none" then
+      for k = 0, math.min(ca, cb) - 1 do
+        local old_ranges, new_ranges = inline(before[sa + k] or "", after[sb + k] or "", mode)
+        changed[sa + k] = old_ranges
+        for _, r in ipairs(new_ranges) do
+          if r[2] > r[1] then
+            vim.api.nvim_buf_set_extmark(buf, ns, sb + k - 1, r[1], {
+              end_col = r[2],
+              hl_group = "RexrAddedText",
+              priority = TINT + 1,
+            })
+          end
+        end
+      end
     end
     if ca > 0 then
       local virt = {}
       for l = sa, sa + ca - 1 do
-        virt[#virt + 1] = { gutter, unpack(chunks(before[l] or "", spans[l], ts, width)) }
+        virt[#virt + 1] = { gutter, unpack(chunks(before[l] or "", spans[l], ts, width, changed[l])) }
       end
       -- Above the hunk's added lines, or below the line the removal follows.
       vim.api.nvim_buf_set_extmark(buf, ns, math.min(math.max(sb, 1), last) - 1, 0, {
