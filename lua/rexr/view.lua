@@ -8,7 +8,7 @@ local M = {
   index = nil, ---@type integer?
   wins = {}, ---@type {files: integer, LEFT: integer, RIGHT: integer}
   bufs = {}, ---@type {LEFT: integer, RIGHT: integer}
-  header = 0, -- lines above the first file in the file list
+  rows = {}, ---@type table<integer, integer> file list line → index into files
   seq = 0, -- numbers comment buffers, which need a name for :w
 }
 
@@ -58,21 +58,99 @@ local function here()
   return { side = side, path = M.files[M.index].path, buf = M.bufs[side], lnum = vim.fn.line(".") }
 end
 
+---@class rexr.Row
+---@field depth integer
+---@field dir? string
+---@field file? rexr.File
+
+--- Lay files out as a tree: each directory heads its contents, directories
+--- before files, and a chain of directories holding nothing else folds into
+--- one header, as `pkg/cmd/version/`.
+---@return rexr.Row[] rows, rexr.File[] files in row order
+local function tree(files)
+  local root = { dirs = {}, files = {} }
+  for _, f in ipairs(files) do
+    local node = root
+    local parts = vim.split(f.path, "/", { plain = true })
+    for i = 1, #parts - 1 do
+      node.dirs[parts[i]] = node.dirs[parts[i]] or { dirs = {}, files = {} }
+      node = node.dirs[parts[i]]
+    end
+    table.insert(node.files, f)
+  end
+  local function before(x, y)
+    return x:lower() < y:lower()
+  end
+  local rows, order = {}, {}
+  local function walk(node, depth)
+    local names = vim.tbl_keys(node.dirs)
+    table.sort(names, before)
+    for _, name in ipairs(names) do
+      local child, label = node.dirs[name], name
+      while #child.files == 0 and vim.tbl_count(child.dirs) == 1 do
+        local only = next(child.dirs)
+        label, child = label .. "/" .. only, child.dirs[only]
+      end
+      rows[#rows + 1] = { depth = depth, dir = label .. "/" }
+      walk(child, depth + 1)
+    end
+    table.sort(node.files, function(x, y)
+      return before(x.path, y.path)
+    end)
+    for _, f in ipairs(node.files) do
+      rows[#rows + 1] = { depth = depth, file = f }
+      order[#order + 1] = f
+    end
+  end
+  walk(root, 0)
+  return rows, order
+end
+
+--- Take a new set of changed files, in the order the tree shows them, so
+--- ]f and [f walk the list top to bottom.
+local function set_files(files)
+  local _, order = tree(files)
+  M.files = order
+end
+
+local STATUS_HL = { A = "Added", ["?"] = "Added", D = "Removed" }
+
 function M.render_files()
   local r = M.review
   local lines = r.pr and { ("#%d %s"):format(r.pr.number, r.pr.title), "base " .. r.base:sub(1, 8), "" }
     or { "diff vs " .. r.base:sub(1, 8), "" }
-  M.header = #lines
+  local marks = { { 0, 0, { line_hl_group = "Title" } } }
   local width = vim.api.nvim_win_get_width(M.wins.files)
-  for _, f in ipairs(M.files) do
-    local n = #comments.find(function(t)
-      return t.path == f.path and not (t.sent or t.answered)
-    end)
-    local count = n > 0 and (" ●" .. n) or ""
-    -- Keep the file name in view: cut long paths from the left.
-    local room = width - 2 - vim.fn.strdisplaywidth(count)
-    local path = #f.path > room and ("…" .. f.path:sub(-(room - 1))) or f.path
-    lines[#lines + 1] = ("%s %s%s"):format(f.status, path, count)
+  local index = {}
+  for i, f in ipairs(M.files) do
+    index[f] = i
+  end
+  M.rows = {}
+  for _, row in ipairs((tree(M.files))) do
+    local indent = string.rep("  ", row.depth)
+    if row.dir then
+      lines[#lines + 1] = indent .. row.dir
+      marks[#marks + 1] = { #lines - 1, 0, { line_hl_group = "Directory" } }
+    else
+      local f = row.file
+      local n = #comments.find(function(t)
+        return t.path == f.path and not (t.sent or t.answered)
+      end)
+      local name = vim.fs.basename(f.path)
+      local room = width - #indent - 2 - (n > 0 and 3 or 0)
+      if #name > room then
+        name = "…" .. name:sub(-(room - 1))
+      end
+      lines[#lines + 1] = indent .. f.status .. " " .. name
+      M.rows[#lines] = index[f]
+      marks[#marks + 1] = { #lines - 1, #indent, { end_col = #indent + 1, hl_group = STATUS_HL[f.status] or "Changed" } }
+      if n > 0 then
+        marks[#marks + 1] = { #lines - 1, 0, { virt_text = { { "●" .. n, "DiagnosticWarn" } }, virt_text_pos = "right_align" } }
+      end
+      if index[f] == M.index then
+        marks[#marks + 1] = { #lines - 1, 0, { line_hl_group = "Visual" } }
+      end
+    end
   end
   if #M.files == 0 then
     lines[#lines + 1] = "(no changes)"
@@ -85,9 +163,8 @@ function M.render_files()
   vim.bo[buf].modifiable = false
   local ns = vim.api.nvim_create_namespace("rexr.files")
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-  vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, { line_hl_group = "Title" })
-  if M.index then
-    vim.api.nvim_buf_set_extmark(buf, ns, M.header + M.index - 1, 0, { line_hl_group = "Visual" })
+  for _, m in ipairs(marks) do
+    vim.api.nvim_buf_set_extmark(buf, ns, m[1], m[2], m[3])
   end
 end
 
@@ -261,7 +338,7 @@ end
 function M.reload()
   local current = M.index and M.files[M.index].path
   vim.cmd("checktime")
-  M.files = git.changed(M.review.base)
+  set_files(git.changed(M.review.base))
   M.index = nil
   for i, f in ipairs(M.files) do
     if f.path == current then
@@ -297,7 +374,7 @@ end
 
 function M.open(review)
   M.review = review
-  M.files = git.changed(review.base)
+  set_files(git.changed(review.base))
 
   M.files_buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(M.files_buf, "rexr://files")
@@ -310,10 +387,10 @@ function M.open(review)
   M.wins.RIGHT = vim.api.nvim_get_current_win()
   local fw = M.wins.files
   local longest = 0
-  for _, f in ipairs(M.files) do
-    longest = math.max(longest, #f.path)
+  for _, row in ipairs((tree(M.files))) do
+    longest = math.max(longest, 2 * row.depth + (row.dir and #row.dir or #vim.fs.basename(row.file.path) + 2))
   end
-  vim.api.nvim_win_set_width(fw, math.min(30, math.max(20, longest + 6)))
+  vim.api.nvim_win_set_width(fw, math.min(32, math.max(20, longest + 4)))
   vim.wo[fw].winfixwidth = true
   vim.wo[fw].number = false
   vim.wo[fw].signcolumn = "no"
@@ -323,8 +400,8 @@ function M.open(review)
 
   map(M.files_buf)
   vim.keymap.set("n", "<CR>", function()
-    local i = vim.fn.line(".") - M.header
-    if M.files[i] then
+    local i = M.rows[vim.fn.line(".")]
+    if i then
       M.show(i)
     end
   end, { buffer = M.files_buf, desc = "open file" })

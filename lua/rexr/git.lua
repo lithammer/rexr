@@ -85,9 +85,6 @@ function M.changed(base)
       files[#files + 1] = { status = "?", path = path }
     end
   end
-  table.sort(files, function(a, b)
-    return a.path < b.path
-  end)
   return files
 end
 
