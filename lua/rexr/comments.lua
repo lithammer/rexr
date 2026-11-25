@@ -194,10 +194,29 @@ function M.find(pred)
   return vim.tbl_filter(pred, M.threads)
 end
 
---- Threads on `path`/`side` that cover line `lnum`.
-function M.at(path, side, lnum)
+---@alias rexr.Sides table<string, true|fun(line: integer): integer>
+--- Which sides' comments a buffer shows: true for the side whose text it
+--- is, else a function from that side's line numbers to the buffer's.
+
+--- Where thread `t` shows in a buffer carrying `sides`: first and last line.
+local function place(t, sides)
+  local to = sides[t.side]
+  local s, e = t.start_line or t.line, t.line
+  if to == true then
+    return s, e
+  end
+  return to(s), to(e)
+end
+
+--- Threads on `path` that show on line `lnum` of a buffer carrying `sides`.
+---@param sides rexr.Sides
+function M.at(path, sides, lnum)
   return M.find(function(t)
-    return t.path == path and t.side == side and (t.start_line or t.line) <= lnum and lnum <= t.line
+    if t.path ~= path or not sides[t.side] then
+      return false
+    end
+    local s, e = place(t, sides)
+    return s <= lnum and lnum <= e
   end)
 end
 
@@ -273,12 +292,14 @@ local function relocate(t, lines)
   return true
 end
 
---- Show the threads for `path`/`side` as diagnostics in `buf`.
-function M.render(buf, path, side)
+--- Show the threads on `path` that `buf` carries as diagnostics in it.
+---@param sides rexr.Sides
+function M.render(buf, path, sides)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local moved = false
   for _, t in ipairs(M.threads) do
-    if t.path == path and t.side == side and relocate(t, lines) then
+    -- Only the buffer's own side can be followed through its text.
+    if t.path == path and sides[t.side] == true and relocate(t, lines) then
       moved = moved or t.kind == "draft"
     end
   end
@@ -289,10 +310,11 @@ function M.render(buf, path, side)
   for kind, ns in pairs(M.ns) do
     local diags = {}
     for _, t in ipairs(M.threads) do
-      if t.kind == kind and t.path == path and t.side == side then
+      if t.kind == kind and t.path == path and sides[t.side] then
+        local s, e = place(t, sides)
         diags[#diags + 1] = {
-          lnum = math.min(t.start_line or t.line, last) - 1,
-          end_lnum = math.min(t.line, last) - 1,
+          lnum = math.min(s, last) - 1,
+          end_lnum = math.min(e, last) - 1,
           col = 0,
           severity = severity(t),
           message = M.text(t),

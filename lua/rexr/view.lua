@@ -1,13 +1,19 @@
 local git = require("rexr.git")
 local comments = require("rexr.comments")
 local agent = require("rexr.agent")
+local unified = require("rexr.unified")
 
 local M = {
   ---@type rexr.File[]
   files = {},
   index = nil, ---@type integer?
-  wins = {}, ---@type {files: integer, LEFT: integer, RIGHT: integer}
-  bufs = {}, ---@type {LEFT: integer, RIGHT: integer}
+  wins = {}, ---@type {files: integer, diff: integer}
+  buf = nil, ---@type integer? the shown file's buffer
+  hunks = nil, ---@type rexr.Hunk[]? nil for a removed file
+  before = {}, ---@type string[] the shown file at the base
+  -- Which comments the shown buffer carries: true for the side whose text
+  -- it is, else a function from that side's lines to the buffer's.
+  sides = {}, ---@type table<string, true|fun(line: integer): integer>
   rows = {}, ---@type table<integer, integer> file list line → index into files
   seq = 0, -- numbers comment buffers, which need a name for :w
 }
@@ -48,14 +54,14 @@ local function highlight(buf)
   end
 end
 
---- Where the cursor is, when it's in one of the diff windows.
+--- Where the cursor is, when it's in the diff window. New comments go on
+--- the side whose text the buffer is.
 local function here()
-  local win = vim.api.nvim_get_current_win()
-  local side = (win == M.wins.LEFT and "LEFT") or (win == M.wins.RIGHT and "RIGHT") or nil
-  if not side or not M.index then
+  if vim.api.nvim_get_current_win() ~= M.wins.diff or not M.index then
     return nil
   end
-  return { side = side, path = M.files[M.index].path, buf = M.bufs[side], lnum = vim.fn.line(".") }
+  local side = M.sides.RIGHT == true and "RIGHT" or "LEFT"
+  return { side = side, path = M.files[M.index].path, buf = M.buf, lnum = vim.fn.line(".") }
 end
 
 ---@class rexr.Row
@@ -172,11 +178,18 @@ function M.render_comments()
   if not M.index then
     return
   end
-  local path = M.files[M.index].path
-  for side, buf in pairs(M.bufs) do
-    if vim.api.nvim_buf_is_valid(buf) then
-      comments.render(buf, path, side)
-    end
+  comments.render(M.buf, M.files[M.index].path, M.sides)
+end
+
+--- Draw the diff over the shown buffer, sized to its window.
+local function render_diff()
+  if not M.index then
+    return
+  end
+  if M.hunks then
+    unified.render(M.wins.diff, M.hunks, M.before)
+  else
+    unified.render_removed(M.buf)
   end
 end
 
@@ -189,48 +202,49 @@ function M.show(i)
   end
   M.index = i
   local base = M.review.base
-  local base_path = f.old or f.path
-
-  vim.cmd("diffoff!")
-  local left = load(("rexr://%s/%s"):format(base, base_path))
-  local right
+  local old = load(("rexr://%s/%s"):format(base, f.old or f.path))
+  -- An empty buffer still holds one empty line; an added file had none.
+  local added = f.status == "A" or f.status == "?"
+  M.before = added and {} or vim.api.nvim_buf_get_lines(old, 0, -1, false)
   if f.status == "D" then
-    right = load("rexr://deleted/" .. f.path)
+    M.buf, M.hunks = old, nil
+    M.sides = { LEFT = true }
   else
-    right = load(M.review.root .. "/" .. f.path)
-    vim.bo[right].buflisted = true
+    M.buf = load(M.review.root .. "/" .. f.path)
+    vim.bo[M.buf].buflisted = true
     -- Review, don't edit: `:set modifiable` to change the file anyway.
-    vim.bo[right].modifiable = false
+    vim.bo[M.buf].modifiable = false
+    M.hunks = unified.hunks(M.before, vim.api.nvim_buf_get_lines(M.buf, 0, -1, false))
+    local hunks = M.hunks
+    M.sides = {
+      RIGHT = true,
+      LEFT = function(line)
+        return unified.map_left(hunks, line)
+      end,
+    }
   end
-  M.bufs = { LEFT = left, RIGHT = right }
-  highlight(left)
-  highlight(right)
+  highlight(M.buf)
 
-  vim.api.nvim_win_set_buf(M.wins.LEFT, left)
-  vim.api.nvim_win_set_buf(M.wins.RIGHT, right)
-  vim.wo[M.wins.LEFT].winbar = winbar(("base %s  %s"):format(base:sub(1, 8), base_path))
-  vim.wo[M.wins.RIGHT].winbar = winbar(("worktree  %s"):format(f.path))
-  for _, side in ipairs({ "LEFT", "RIGHT" }) do
-    local win = M.wins[side]
-    vim.api.nvim_win_call(win, function()
-      vim.cmd("diffthis")
-    end)
-    vim.wo[win].number = true
-    -- Comment signs take the place of the line number; the space matters
-    -- in a split beside the agent.
-    vim.wo[win].signcolumn = "number"
-    vim.wo[win].cursorline = true
-    vim.wo[win].wrap = false
-    map(M.bufs[side])
-  end
+  local win = M.wins.diff
+  vim.api.nvim_win_set_buf(win, M.buf)
+  vim.wo[win].winbar = winbar(
+    f.status == "D" and ("%s  removed"):format(f.path) or ("%s  %s → worktree"):format(f.path, base:sub(1, 8))
+  )
+  vim.wo[win].number = true
+  -- Comment signs take the place of the line number; the space matters
+  -- in a split beside the agent.
+  vim.wo[win].signcolumn = "number"
+  vim.wo[win].cursorline = true
+  vim.wo[win].wrap = false
+  render_diff()
+  unified.fold(win, M.hunks)
+  map(M.buf)
 
   M.render_comments()
   M.render_files()
-  vim.api.nvim_set_current_win(M.wins.RIGHT)
-  vim.cmd("normal! gg")
-  if f.status ~= "A" and f.status ~= "?" and f.status ~= "D" then
-    pcall(vim.cmd, "normal! ]c")
-  end
+  vim.api.nvim_set_current_win(win)
+  vim.api.nvim_win_set_cursor(win, { M.hunks and unified.first(M.hunks) or 1, 0 })
+  vim.cmd("normal! zz")
 end
 
 function M.step(delta)
@@ -314,7 +328,7 @@ end
 function M.send_here()
   local h = here()
   if h then
-    send(comments.at(h.path, h.side, h.lnum))
+    send(comments.at(h.path, M.sides, h.lnum))
   end
 end
 
@@ -328,7 +342,7 @@ function M.delete_here()
   local h = here()
   local drafts = h and vim.tbl_filter(function(t)
     return t.kind == "draft"
-  end, comments.at(h.path, h.side, h.lnum)) or {}
+  end, comments.at(h.path, M.sides, h.lnum)) or {}
   if #drafts == 0 then
     return notify("no draft on this line")
   end
@@ -356,6 +370,8 @@ map = function(buf)
     vim.keymap.set("n", lhs, rhs, { buffer = buf, nowait = true, desc = desc })
   end
   n("]f", function() M.step(1) end, "next file")
+  n("]c", function() unified.jump(M.hunks or {}, 1) end, "next change")
+  n("[c", function() unified.jump(M.hunks or {}, -1) end, "previous change")
   n("[f", function() M.step(-1) end, "previous file")
   n("c", function() M.comment(vim.fn.line("."), vim.fn.line(".")) end, "comment")
   vim.keymap.set("x", "c", function()
@@ -382,9 +398,7 @@ function M.open(review)
   M.wins.files = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(M.wins.files, M.files_buf)
   vim.cmd("rightbelow vsplit")
-  M.wins.LEFT = vim.api.nvim_get_current_win()
-  vim.cmd("rightbelow vsplit")
-  M.wins.RIGHT = vim.api.nvim_get_current_win()
+  M.wins.diff = vim.api.nvim_get_current_win()
   local fw = M.wins.files
   local longest = 0
   for _, row in ipairs((tree(M.files))) do
@@ -396,7 +410,8 @@ function M.open(review)
   vim.wo[fw].signcolumn = "no"
   vim.wo[fw].wrap = false
   vim.wo[fw].cursorline = true
-  vim.cmd("wincmd =")
+  -- Removed lines are padded to the window's width.
+  vim.api.nvim_create_autocmd("WinResized", { callback = render_diff })
 
   map(M.files_buf)
   vim.keymap.set("n", "<CR>", function()

@@ -10,7 +10,6 @@ end, {
 
 -- rexr://REV/PATH is PATH as it was at REV, read-only. A path that doesn't
 -- exist at REV reads as empty, which is how added files show their base.
--- rexr://deleted/PATH is the empty worktree side of a deleted file.
 vim.api.nvim_create_autocmd("BufReadCmd", {
   pattern = "rexr://*",
   callback = function(ev)
@@ -18,7 +17,7 @@ vim.api.nvim_create_autocmd("BufReadCmd", {
     if not rev then
       return
     end
-    local lines = rev ~= "deleted" and require("rexr.git").show(rev, path) or {}
+    local lines = require("rexr.git").show(rev, path) or {}
     local bo = vim.bo[ev.buf]
     bo.buftype = "nofile"
     bo.swapfile = false
