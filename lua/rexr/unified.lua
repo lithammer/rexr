@@ -112,6 +112,36 @@ local function merge(ranges, line)
   return out
 end
 
+--- Merge character changes split by a short run of unchanged characters,
+--- as Neovim's diff mode does for inline:char, which a naive character
+--- diff otherwise leaves as scattered fragments ("re|rn" for "return"):
+--- a gap of three characters or less goes when the larger side of the two
+--- changes it splits is at least four times as long. A merge can make a
+--- neighbouring gap worth merging, so pass again, a few times at most.
+local function refine(blocks)
+  for _ = 1, 4 do
+    local merged, unmerged = false, false
+    local i = 1
+    while i < #blocks do
+      local k, n = blocks[i], blocks[i + 1]
+      local gap = n[1] - (k[1] + k[2])
+      if gap <= 3 and math.max(k[2] + n[2], k[4] + n[4]) >= gap * 4 then
+        k[2] = n[1] + n[2] - k[1]
+        k[4] = n[3] + n[4] - k[3]
+        table.remove(blocks, i + 1)
+        merged = true
+      else
+        unmerged = unmerged or gap <= 3
+        i = i + 1
+      end
+    end
+    if not (merged and unmerged) then
+      break
+    end
+  end
+  return blocks
+end
+
 --- The changed byte ranges { first, past the last } of a removed line and
 --- the added line it became. Neovim keeps its own inline diff inside diff
 --- mode, so diff the lines' tokens with the same engine, one per line.
@@ -135,13 +165,21 @@ local function inline(old, new, mode)
       return k[1]
     end, t))
   end
+  -- Each hunk as { first old token, count, first new token, count }: an
+  -- empty side's start names the token before it.
+  local blocks = vim.tbl_map(function(h)
+    return { h[2] == 0 and h[1] + 1 or h[1], h[2], h[4] == 0 and h[3] + 1 or h[3], h[4] }
+  end, vim.text.diff(join(a), join(b), { result_type = "indices" }))
+  if mode == "char" then
+    blocks = refine(blocks)
+  end
   local ra, rb = {}, {}
-  for _, h in ipairs(vim.text.diff(join(a), join(b), { result_type = "indices" })) do
-    if h[2] > 0 then
-      ra[#ra + 1] = { a[h[1]][2], a[h[1] + h[2] - 1][3] }
+  for _, k in ipairs(blocks) do
+    if k[2] > 0 then
+      ra[#ra + 1] = { a[k[1]][2], a[k[1] + k[2] - 1][3] }
     end
-    if h[4] > 0 then
-      rb[#rb + 1] = { b[h[3]][2], b[h[3] + h[4] - 1][3] }
+    if k[4] > 0 then
+      rb[#rb + 1] = { b[k[3]][2], b[k[3] + k[4] - 1][3] }
     end
   end
   if mode == "word" then
@@ -292,11 +330,15 @@ function M.render(win, hunks, before)
     -- A range, not line_hl_group: a line highlight draws over every
     -- character highlight, the changed-word tint below included.
     for row = sb, sb + cb - 1 do
+      -- Ending at the next line's start covers the line break, which
+      -- hl_eol needs to carry the tint to the window's edge.
       vim.api.nvim_buf_set_extmark(buf, ns, row - 1, 0, {
-        end_col = #(after[row] or ""),
+        end_row = row,
+        end_col = 0,
         hl_group = "RexrAdded",
         hl_eol = true,
         priority = TINT,
+        strict = false,
       })
     end
     -- Pair removed and added lines in order, as linematch has aligned them;
