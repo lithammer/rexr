@@ -347,7 +347,7 @@ function M.show_threads()
     border = "rounded",
     title = " " .. table.concat(ids, " · ") .. " ",
     title_pos = "left",
-    max_width = math.min(88, vim.api.nvim_win_get_width(M.wins.diff) - 4),
+    max_width = math.min(120, vim.api.nvim_win_get_width(M.wins.diff) - 4),
     max_height = math.floor(vim.o.lines * 0.6),
     focus_id = "rexr.threads",
   })
