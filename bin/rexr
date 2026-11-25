@@ -1,0 +1,60 @@
+#!/bin/sh
+# rexr: review a diff or pull request in a clean Neovim, beside an agent in Rex.
+set -eu
+
+root=$(dirname "$(dirname "$(readlink -f "$0")")")
+
+# The agent pane and its reviewer meet at a socket named after the agent's
+# block, so `rexr reply` run from the agent's pane finds its own reviewer.
+sock_for() {
+	printf '%s/rexr/%s.sock' "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" "${1#block:}"
+}
+
+usage() {
+	cat <<EOF
+usage: rexr [diff [BASE] | pr [N]]  review here (default: this branch's PR, else diff)
+       rexr open [ARGS...]          review in a Rex split beside this pane's agent
+       rexr reply ID TEXT           answer review comment ID (run from the agent's pane)
+EOF
+}
+
+case "${1:-}" in
+-h | --help)
+	usage
+	;;
+open)
+	shift
+	: "${REX_BLOCK:?rexr open must run inside a Rex pane}"
+	exec rex split -b "$REX_BLOCK" --split=right --ratio 55 -c "$PWD" -- \
+		env REXR_AGENT="$REX_BLOCK" "$root/bin/rexr" "$@"
+	;;
+reply)
+	[ $# -eq 3 ] || {
+		usage >&2
+		exit 2
+	}
+	: "${REX_BLOCK:?rexr reply must run inside the agent's Rex pane}"
+	sock=$(sock_for "$REX_BLOCK")
+	[ -S "$sock" ] || {
+		echo "rexr: no reviewer is open beside this pane" >&2
+		exit 1
+	}
+	msg=$(mktemp)
+	trap 'rm -f "$msg"' EXIT
+	printf '%s\n%s' "$2" "$3" >"$msg"
+	result=$(nvim --server "$sock" --remote-expr "v:lua.require'rexr'.reply_file('$msg')")
+	echo "$result"
+	[ "$result" = ok ]
+	;;
+*)
+	args="$*"
+	set --
+	if [ -n "${REXR_AGENT:-}" ]; then
+		sock=$(sock_for "$REXR_AGENT")
+		mkdir -p "$(dirname "$sock")"
+		rm -f "$sock"
+		set -- --listen "$sock"
+	fi
+	exec nvim --clean --cmd "set rtp^=$root" "$@" +"Rexr $args"
+	;;
+esac
