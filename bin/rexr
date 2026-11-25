@@ -30,6 +30,25 @@ reviewer_sock() {
 	}
 }
 
+# Evaluate $1 in the reviewer. Neovim holds RPC while a command waits for
+# one more key, as f, t, r or m do, so give up after a few seconds rather
+# than stall the agent. On a timeout the output, which then holds only the
+# killed client's notice, is dropped.
+ask() {
+	command -v timeout >/dev/null || {
+		nvim --server "$sock" --remote-expr "$1"
+		return
+	}
+	status=0
+	out=$( (timeout 5 nvim --server "$sock" --remote-expr "$1") 2>&1) || status=$?
+	if [ "$status" -eq 124 ]; then
+		echo "rexr: the reviewer didn't answer; it may be waiting for a key: press Esc in it" >&2
+		return 1
+	fi
+	printf '%s\n' "$out"
+	return "$status"
+}
+
 case "${1:-}" in
 -h | --help)
 	usage
@@ -53,7 +72,7 @@ show)
 		esac
 	done
 	reviewer_sock show
-	nvim --server "$sock" --remote-expr "v:lua.require'rexr'.show('$*')"
+	ask "v:lua.require'rexr'.show('$*')"
 	;;
 reply)
 	[ $# -eq 3 ] || {
@@ -64,7 +83,7 @@ reply)
 	msg=$(mktemp)
 	trap 'rm -f "$msg"' EXIT
 	printf '%s\n%s' "$2" "$3" >"$msg"
-	result=$(nvim --server "$sock" --remote-expr "v:lua.require'rexr'.reply_file('$msg')")
+	result=$(ask "v:lua.require'rexr'.reply_file('$msg')")
 	echo "$result"
 	[ "$result" = ok ]
 	;;
