@@ -325,6 +325,34 @@ local function send(threads)
   notify(err .. (copied and "; copied instead" or ""), vim.log.levels.WARN)
 end
 
+--- Open the threads on the cursor's line in a float; K again enters it.
+function M.show_threads()
+  local h = here()
+  if not h then
+    return
+  end
+  local threads = comments.at(h.path, M.sides, h.lnum)
+  if #threads == 0 then
+    return notify("no comments on this line")
+  end
+  local lines, ids = {}, {}
+  for i, t in ipairs(threads) do
+    if i > 1 then
+      vim.list_extend(lines, { "", "---", "" })
+    end
+    vim.list_extend(lines, comments.markdown(t))
+    ids[#ids + 1] = t.id
+  end
+  vim.lsp.util.open_floating_preview(lines, "markdown", {
+    border = "rounded",
+    title = " " .. table.concat(ids, " · ") .. " ",
+    title_pos = "left",
+    max_width = math.min(88, vim.api.nvim_win_get_width(M.wins.diff) - 4),
+    max_height = math.floor(vim.o.lines * 0.6),
+    focus_id = "rexr.threads",
+  })
+end
+
 function M.send_here()
   local h = here()
   if not h then
@@ -396,7 +424,7 @@ map = function(buf)
     M.comment(l1, l2)
   end, { buffer = buf, desc = "comment on range" })
   n("x", M.delete_here, "delete draft")
-  n("K", function() vim.diagnostic.open_float({ scope = "line", header = "", prefix = "" }) end, "show comments")
+  n("K", M.show_threads, "show comments")
   n("s", M.send_here, "send comments on line")
   n("S", M.send_all, "send all drafts")
   n("R", function() M.reload(); M.on_refresh() end, "refresh")

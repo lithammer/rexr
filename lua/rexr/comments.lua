@@ -32,19 +32,21 @@ M.ns = {
 }
 
 local S = vim.diagnostic.severity
-local function first_line(d)
-  return d.message:match("[^\n]*")
+-- The text after a commented line: who, and how many replies. K shows the
+-- thread itself.
+local function hint(d)
+  return d.user_data and d.user_data.hint or d.message:match("[^\n]*")
 end
 -- Severity picks the sign: a pending draft warns, a GitHub thread informs,
 -- and anything settled (sent, answered, outdated) drops to a hint.
 vim.diagnostic.config({
   signs = { text = { [S.WARN] = "●", [S.HINT] = "✓" } },
-  virtual_text = { format = first_line, prefix = "" },
+  virtual_text = { format = hint, prefix = "" },
   underline = false,
 }, M.ns.draft)
 vim.diagnostic.config({
   signs = { text = { [S.INFO] = "◆", [S.HINT] = "◇" } },
-  virtual_text = { format = first_line, prefix = "" },
+  virtual_text = { format = hint, prefix = "" },
   underline = false,
 }, M.ns.github)
 
@@ -318,6 +320,9 @@ function M.render(buf, path, sides)
           col = 0,
           severity = severity(t),
           message = M.text(t),
+          user_data = {
+            hint = ("%s %s%s"):format(t.id, t.messages[1].author, #t.messages > 1 and (" +" .. (#t.messages - 1)) or ""),
+          },
         }
       end
     end
@@ -355,6 +360,32 @@ local function location(t)
   end
   local tag = #tags > 0 and (" (" .. table.concat(tags, ", ") .. ")") or ""
   return ("[%s] %s:%s%s"):format(t.id, t.path, range, tag)
+end
+
+--- A thread as markdown, for the person to read: where it is and in what
+--- state, then each message under its author.
+function M.markdown(t)
+  local state = {}
+  for _, s in ipairs({
+    { t.outdated, "outdated" },
+    { t.stale, "changed locally" },
+    { t.answered, "answered" },
+    { t.sent and not t.answered, "sent" },
+  }) do
+    if s[1] then
+      state[#state + 1] = s[2]
+    end
+  end
+  local where = location(t):gsub("^%[[^%]]+%] ", "")
+  local out = { ("`%s`%s"):format(where, #state > 0 and ("  " .. table.concat(state, ", ")) or ""), "" }
+  for i, m in ipairs(t.messages) do
+    if i > 1 then
+      out[#out + 1] = ""
+    end
+    out[#out + 1] = ("**%s**%s"):format(m.author, m.association and (" · " .. m.association:lower()) or "")
+    vim.list_extend(out, vim.split((m.body:gsub("\r", "")), "\n"))
+  end
+  return out
 end
 
 --- What the reviewer pastes into the agent's prompt: one short line that
