@@ -96,10 +96,15 @@ Run `rexr` without `open` to review in the current terminal, without an agent.
 ## Test
 
 ```sh
-nvim --clean --headless -l test/inline_test.lua
+for t in test/*_test.lua; do nvim --clean --headless -l "$t" || break; done
 ```
 
-It checks that rexr marks the same changed words as Neovim's own diff mode.
+- `inline_test.lua`: rexr marks the same changed words as Neovim's own diff
+  mode.
+- `map_left_test.lua`: comments on removed lines land where the removal is
+  drawn, over hand-made and random edits.
+- `comments_test.lua`: comments follow their code as it moves, and never jump
+  to code that only looks the same.
 
 [Rex]: https://www.superlogical.com/rex/docs
 [GitHub CLI]: https://cli.github.com
