@@ -2,6 +2,7 @@ local git = require("rexr.git")
 local comments = require("rexr.comments")
 local agent = require("rexr.agent")
 local unified = require("rexr.unified")
+local live = require("rexr.live")
 
 local M = {
   ---@type rexr.File[]
@@ -117,6 +118,12 @@ end
 local function set_files(files)
   local _, order = tree(files)
   M.files = order
+  local paths = vim.tbl_map(function(f)
+    return f.path
+  end, order)
+  live.watch(M.review.root, paths, function()
+    M.refresh()
+  end)
 end
 
 local STATUS_HL = { A = "Added", ["?"] = "Added", D = "Removed" }
@@ -193,9 +200,48 @@ local function render_diff()
   end
 end
 
+-- The agent's status as its pane reports it, for the winbar.
+local AGENT = {
+  working = { "working", "DiagnosticWarn" },
+  idle = { "idle", "DiagnosticOk" },
+  done = { "done", "DiagnosticOk" },
+  blocked = { "waiting on you", "DiagnosticError" },
+  error = { "error", "DiagnosticError" },
+  exited = { "exited", "DiagnosticError" },
+}
+
+--- The diff window's bar: the shown file on the left, the agent's status
+--- on the right.
+local function update_winbar()
+  local f = M.index and M.files[M.index]
+  if not f then
+    return
+  end
+  local left = winbar(
+    f.status == "D" and ("%s  removed"):format(f.path) or ("%s  %s → worktree"):format(f.path, M.review.base:sub(1, 8))
+  )
+  local right = ""
+  if M.agent then
+    -- An unknown state reads as idle, as Rex's program status asks.
+    local label = AGENT[M.agent.state] or AGENT.idle
+    local kind = M.agent.state == "blocked" and M.agent.kind and (" for " .. M.agent.kind) or ""
+    right = ("%%#%s#● agent %s%s%%* "):format(label[2], label[1], kind)
+  end
+  vim.wo[M.wins.diff].winbar = left .. "%=" .. right
+end
+
+---@param status rexr.AgentStatus?
+function M.set_agent(status)
+  M.agent = status
+  update_winbar()
+end
+
 local map -- set below; show() maps keys on each buffer it opens
 
-function M.show(i)
+--- Show file `i`, at its first change. With `view`, from winsaveview, it's
+--- a refresh instead: keep the cursor where it was and leave the focus be,
+--- which may be in a comment the person is writing.
+function M.show(i, view)
   local f = M.files[i]
   if not f then
     return
@@ -227,9 +273,7 @@ function M.show(i)
 
   local win = M.wins.diff
   vim.api.nvim_win_set_buf(win, M.buf)
-  vim.wo[win].winbar = winbar(
-    f.status == "D" and ("%s  removed"):format(f.path) or ("%s  %s → worktree"):format(f.path, base:sub(1, 8))
-  )
+  update_winbar()
   vim.wo[win].number = true
   -- Comment signs take the place of the line number; the space matters
   -- in a split beside the agent.
@@ -242,6 +286,13 @@ function M.show(i)
 
   M.render_comments()
   M.render_files()
+  if view then
+    vim.api.nvim_win_call(win, function()
+      vim.fn.winrestview(view)
+      vim.cmd("normal! zv")
+    end)
+    return
+  end
   vim.api.nvim_set_current_win(win)
   vim.api.nvim_win_set_cursor(win, { M.hunks and unified.first(M.hunks) or 1, 0 })
   vim.cmd("normal! zz")
@@ -393,18 +444,23 @@ function M.delete_here()
   comments.delete(drafts[#drafts].id)
 end
 
-function M.reload()
+--- Pick up what changed on disk: which files differ, and their text.
+--- Keeps the shown file, its view and the focus.
+function M.refresh()
   local current = M.index and M.files[M.index].path
+  local view = M.index and vim.api.nvim_win_call(M.wins.diff, vim.fn.winsaveview) or {}
   vim.cmd("checktime")
   set_files(git.changed(M.review.base))
-  M.index = nil
+  local index
   for i, f in ipairs(M.files) do
     if f.path == current then
-      M.index = i
+      index = i
     end
   end
+  M.index = nil
   M.render_files()
-  M.show(M.index or 1)
+  -- The shown file may no longer differ, as when the agent undid a change.
+  M.show(index or 1, index and view or {})
 end
 
 M.on_refresh = function() end
@@ -427,7 +483,7 @@ map = function(buf)
   n("K", M.show_threads, "show comments")
   n("s", M.send_here, "send comments on line")
   n("S", M.send_all, "send all drafts")
-  n("R", function() M.reload(); M.on_refresh() end, "refresh")
+  n("R", function() M.refresh(); M.on_refresh() end, "refresh")
   n("q", "<Cmd>confirm qall<CR>", "quit")
   n("?", function() vim.notify(HELP) end, "help")
 end

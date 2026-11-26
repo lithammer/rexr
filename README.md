@@ -43,7 +43,11 @@ rexr open diff main
 
 The reviewer opens in a split beside the agent: changed files as a tree on the
 left, and the selected file as a unified diff on the right. GitHub review
-threads show in the line numbers.
+threads show in the line numbers, and the bar above the diff shows whether the
+agent is working, idle or waiting on you.
+
+The reviewer keeps up on its own: it reloads when the agent edits files, and
+fetches the threads again when someone reviews or pushes to the pull request.
 
 | Key | Does |
 | --- | --- |
@@ -56,7 +60,7 @@ threads show in the line numbers.
 | `x` | delete your comment on this line |
 | `s` | send the comments on this line to the agent; twice to resend |
 | `S` | send all your unsent comments |
-| `R` | reload the files and the GitHub threads |
+| `R` | reload the files and the GitHub threads now |
 | `q` | quit |
 
 `s` pastes one line into the agent's prompt, such as:

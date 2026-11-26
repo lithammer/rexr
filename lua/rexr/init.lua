@@ -2,6 +2,8 @@ local git = require("rexr.git")
 local github = require("rexr.github")
 local comments = require("rexr.comments")
 local view = require("rexr.view")
+local agent = require("rexr.agent")
+local live = require("rexr.live")
 
 local M = {}
 
@@ -70,11 +72,15 @@ function M.start(args)
 
   comments.setup(review)
   view.open(review)
+  if agent.block then
+    live.follow_agent(agent.block, view.set_agent)
+  end
   if review.pr then
     view.on_refresh = function()
       fetch_threads(review.pr)
     end
     fetch_threads(review.pr)
+    live.follow_pr(review.pr, view.on_refresh)
   end
 end
 
