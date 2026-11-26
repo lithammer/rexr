@@ -1,5 +1,12 @@
 local M = {}
 
+-- GitHub sends null for absent fields, such as an outdated thread's line.
+-- vim.json.decode makes that vim.NIL, which is true in Lua, so `a or b`
+-- would keep it; decode it as nil.
+local function decode(s)
+  return vim.json.decode(s, { luanil = { object = true, array = true } })
+end
+
 local QUERY = [[
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -39,7 +46,7 @@ function M.pr(number)
   if r.code ~= 0 then
     return nil, vim.trim(r.stderr)
   end
-  return vim.json.decode(r.stdout)
+  return decode(r.stdout)
 end
 
 --- Fetch the PR's review threads; calls back on the main loop.
@@ -59,7 +66,7 @@ function M.threads(pr, cb)
       if r.code ~= 0 then
         return cb(nil, vim.trim(r.stderr))
       end
-      local data = vim.json.decode(r.stdout)
+      local data = decode(r.stdout)
       cb(data.data.repository.pullRequest.reviewThreads.nodes)
     end)
   end)
