@@ -16,17 +16,17 @@ needs the [GitHub CLI] (`gh`), signed in.
 Add it to your Neovim config:
 
 ```lua
-vim.pack.add({ { src = "<this repository>", name = "rexr" } })
+vim.pack.add({ "https://github.com/lithammer/rexr" })
 ```
 
-For Claude Code, also link the skill, so the agent can open the reviewer
-itself when you ask it to:
+Install the skill, so the agent can open the reviewer itself when you ask it
+to:
 
 ```sh
-ln -s ~/.local/share/nvim/site/pack/core/opt/rexr/skills/rexr ~/.claude/skills/rexr
+npx skills add lithammer/rexr -g -s rexr
 ```
 
-Other agents need no setup beyond the command below.
+Agents without skills need only the command below.
 
 ## Use
 
