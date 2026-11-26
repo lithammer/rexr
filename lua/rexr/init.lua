@@ -84,13 +84,4 @@ function M.start(args)
   end
 end
 
---- Entry point for `rexr reply`: the file holds the comment ID on its first
---- line and the reply after it.
----@return string "ok" or why the reply was refused
-function M.reply_file(path)
-  local lines = vim.fn.readfile(path)
-  local id = table.remove(lines, 1)
-  return comments.reply(id, table.concat(lines, "\n"))
-end
-
 return M

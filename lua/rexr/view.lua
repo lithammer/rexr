@@ -147,7 +147,7 @@ function M.render_files()
     else
       local f = row.file
       local n = #comments.find(function(t)
-        return t.path == f.path and not (t.sent or t.answered)
+        return t.path == f.path and not t.sent
       end)
       local name = vim.fs.basename(f.path)
       local room = width - #indent - 2 - (n > 0 and 3 or 0)
@@ -370,7 +370,7 @@ local function send(threads)
   local ok, err = agent.send(text)
   if ok then
     comments.mark_sent(threads)
-    return notify(("sent %d; press Enter in the agent"):format(#threads))
+    return notify(("%d in chat; press Enter in the agent"):format(#threads))
   end
   local copied = pcall(vim.fn.setreg, "+", text)
   notify(err .. (copied and "; copied instead" or ""), vim.log.levels.WARN)
@@ -424,7 +424,7 @@ function M.send_here()
     return send(all)
   end
   M.resend = { key = key, at = now }
-  notify("already sent; press s again to resend")
+  notify("already in chat; press s again to resend")
 end
 
 function M.send_all()

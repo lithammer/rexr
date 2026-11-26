@@ -13,8 +13,7 @@ local git = require("rexr.git")
 ---@field start_line? integer first line of a range
 ---@field messages rexr.Message[]
 ---@field code? string[] the commented lines when the draft was written
----@field sent? boolean
----@field answered? boolean
+---@field sent? boolean pasted into the agent's chat
 ---@field outdated? boolean GitHub's verdict: the PR's code moved past it
 ---@field stale? boolean its code is gone from the buffer it shows in
 ---@field url? string
@@ -38,7 +37,7 @@ local function hint(d)
   return d.user_data and d.user_data.hint or d.message:match("[^\n]*")
 end
 -- Severity picks the sign: a pending draft warns, a GitHub thread informs,
--- and anything settled (sent, answered, outdated) drops to a hint.
+-- and anything settled (in chat, outdated) drops to a hint.
 vim.diagnostic.config({
   signs = { text = { [S.WARN] = "●", [S.HINT] = "✓" } },
   virtual_text = { format = hint, prefix = "" },
@@ -55,10 +54,9 @@ local function store_path()
   return ("%s/rexr/%s.json"):format(M.review.git_dir, branch)
 end
 
--- What the reviewer adds to a GitHub thread (sent, answered, agent replies),
--- by thread ID. Kept apart from the threads so it survives a refetch and
--- covers threads that haven't loaded yet.
-M.github_state = {}
+-- GitHub threads already in the agent's chat, by ID. Kept apart from the
+-- threads so it survives a refetch and covers threads not loaded yet.
+M.github_sent = {}
 
 local function save()
   local drafts = {}
@@ -66,18 +64,12 @@ local function save()
     if t.kind == "draft" then
       drafts[#drafts + 1] = t
     else
-      M.github_state[t.id] = {
-        sent = t.sent,
-        answered = t.answered,
-        replies = vim.tbl_filter(function(m)
-          return m.author == "agent"
-        end, t.messages),
-      }
+      M.github_sent[t.id] = t.sent or nil
     end
   end
   local path = store_path()
   vim.fn.mkdir(vim.fs.dirname(path), "p")
-  local data = { next_id = M.next_id, drafts = drafts, github = M.github_state }
+  local data = { next_id = M.next_id, drafts = drafts, github_sent = M.github_sent }
   vim.fn.writefile({ vim.json.encode(data) }, path)
 end
 
@@ -90,7 +82,7 @@ function M.setup(review)
   if ok then
     M.threads = data.drafts or {}
     M.next_id = data.next_id or #M.threads + 1
-    M.github_state = data.github or {}
+    M.github_sent = data.github_sent or {}
   end
 end
 
@@ -144,7 +136,6 @@ function M.set_github(nodes)
         }
       end, n.comments.nodes)
       local start_line = n.line and n.startLine or n.originalStartLine
-      local state = M.github_state[id] or {}
       M.threads[#M.threads + 1] = {
         id = id,
         kind = "github",
@@ -156,9 +147,8 @@ function M.set_github(nodes)
         code = not n.isOutdated and code(n.diffSide, n.path, start_line or line, line) or nil,
         outdated = n.isOutdated,
         url = first.url,
-        messages = vim.list_extend(messages, state.replies or {}),
-        sent = state.sent,
-        answered = state.answered,
+        messages = messages,
+        sent = M.github_sent[id],
       }
     end
   end
@@ -187,20 +177,6 @@ function M.mark_sent(threads)
     t.sent = true
   end
   changed()
-end
-
----@return string "ok" or why the reply was refused
-function M.reply(id, body)
-  for _, t in ipairs(M.threads) do
-    if t.id == id then
-      t.messages[#t.messages + 1] = { author = "agent", body = body }
-      t.answered = true
-      changed()
-      vim.notify(("rexr: agent answered %s"):format(id))
-      return "ok"
-    end
-  end
-  return "no comment " .. id
 end
 
 ---@return rexr.Thread[]
@@ -250,9 +226,9 @@ end
 
 local function severity(t)
   if t.kind == "draft" then
-    return (t.sent or t.answered) and S.HINT or S.WARN
+    return t.sent and S.HINT or S.WARN
   end
-  return (t.answered or t.outdated or t.stale) and S.HINT or S.INFO
+  return (t.sent or t.outdated or t.stale) and S.HINT or S.INFO
 end
 
 local function matches(lines, code, at)
@@ -364,8 +340,7 @@ function M.markdown(t)
   for _, s in ipairs({
     { t.outdated, "outdated" },
     { t.stale, "changed locally" },
-    { t.answered, "answered" },
-    { t.sent and not t.answered, "sent" },
+    { t.sent, "in chat" },
   }) do
     if s[1] then
       state[#state + 1] = s[2]
@@ -410,15 +385,11 @@ function M.prompt(threads)
         for _, l in ipairs(body) do
           out[#out + 1] = l == "" and ">" or ("> " .. l)
         end
-      elseif m.author == "agent" then
-        out[#out + 1] = "Your earlier answer: " .. table.concat(body, "\n")
       else
         vim.list_extend(out, body)
       end
     end
   end
-  out[#out + 1] = ""
-  out[#out + 1] = 'Answer each with `rexr reply <id> "<what you did>"`.'
   return table.concat(out, "\n")
 end
 

@@ -113,9 +113,16 @@ function M.follow_agent(block, on_status)
   end)
 end
 
---- Call `on_event` when someone reviews or pushes to `pr`. GitHub's event
---- subscriptions are a preview that may be off for the account; then `gh`
---- exits at once and nothing is called.
+-- embark-bot resolves the threads a push fixed a few minutes after it,
+-- and GitHub sends no event for a resolved thread, so after a push look
+-- again for a while. On #59400 that took two to three minutes.
+local AFTER_PUSH_EVERY, AFTER_PUSH_TIMES = 60 * 1000, 5
+local after_push = assert(vim.uv.new_timer())
+
+--- Call `on_event` when someone reviews or pushes to `pr`, and again each
+--- minute for a few minutes after a push. GitHub's event subscriptions are
+--- a preview that may be off for the account; then `gh` exits at once and
+--- nothing is called.
 ---@param pr rexr.PR
 function M.follow_pr(pr, on_event)
   stream({
@@ -123,8 +130,20 @@ function M.follow_pr(pr, on_event)
     "--resource", pr.url,
     "--event", "com.github.pull_request.review.submitted.v1,com.github.pull_request.head.changed.v1",
   }, function(line)
-    if line ~= "" then
-      on_event()
+    local ok, ev = pcall(vim.json.decode, line)
+    if not ok or type(ev) ~= "table" then
+      return
+    end
+    on_event()
+    if ev.type == "com.github.pull_request.head.changed.v1" then
+      local left = AFTER_PUSH_TIMES
+      after_push:start(AFTER_PUSH_EVERY, AFTER_PUSH_EVERY, vim.schedule_wrap(function()
+        left = left - 1
+        if left == 0 then
+          after_push:stop()
+        end
+        on_event()
+      end))
     end
   end)
 end

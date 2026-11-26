@@ -1,8 +1,8 @@
 # rexr
 
 Review a diff or GitHub pull request in Neovim, in a [Rex] pane beside your
-coding agent, and send your comments to the agent with a key press. The agent
-reads them, makes the change, and answers each one back in the reviewer.
+coding agent, and send your comments and GitHub's review threads to the agent
+with a key press.
 
 rexr runs as `nvim --clean` with this repository on its runtimepath, so your
 Neovim config and plugins don't affect it. It works with any agent that runs in
@@ -27,8 +27,7 @@ itself when you ask it to:
 ln -s ~/src/rexr/skills/rexr ~/.claude/skills/rexr
 ```
 
-Other agents need no setup: every comment rexr sends tells the agent which
-commands to run.
+Other agents need no setup.
 
 ## Use
 
@@ -47,7 +46,9 @@ threads show in the line numbers, and the bar above the diff shows whether the
 agent is working, idle or waiting on you.
 
 The reviewer keeps up on its own: it reloads when the agent edits files, and
-fetches the threads again when someone reviews or pushes to the pull request.
+fetches the threads again when someone reviews or pushes to the pull request,
+and each minute for five minutes after a push, when bots such as embark-bot
+resolve the threads it fixed. Resolved threads leave the reviewer.
 
 | Key | Does |
 | --- | --- |
@@ -74,21 +75,18 @@ Use a named constant here.
 [g4460645011] version.go:30-31  https://github.com/owner/repo/pull/123#discussion_r4460645011
 @octocat (member) on GitHub:
 > This breaks semver ordering for pre-releases.
-
-Answer each with `rexr reply <id> "<what you did>"`.
 ```
 
 It doesn't press Enter, so you can add to it first. GitHub text goes in as
 you read it under `K`, quoted under its author, so the agent knows it isn't
-yours. The agent answers each comment with `rexr reply ID TEXT`, which marks
-it answered in the reviewer.
+yours. Sent comments show as "in chat" and step back to a hint.
 
 Run `rexr` without `open` to review in the current terminal, without an agent.
 
 ## Notes
 
-- Your comments are saved per branch in `.git/rexr/`. Replies to GitHub threads
-  stay in the reviewer; rexr never posts to GitHub.
+- Your comments, and which threads are in the agent's chat, are saved per
+  branch in `.git/rexr/`. rexr never posts to GitHub.
 - The diff follows your `'diffopt'`: algorithm, `indent-heuristic`,
   `linematch`, whitespace options and `inline:` for changed words.
 - Highlighting uses the treesitter parsers you installed under
