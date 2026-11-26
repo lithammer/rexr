@@ -99,6 +99,18 @@ local function changed()
   M.on_change()
 end
 
+--- A GitHub comment's body without the markup only machines read: HTML
+--- comments, where embark-bot leaves its fingerprints, and the tags around
+--- a collapsed section, whose summary stays as a bold line.
+local function tidy(body)
+  local s = body:gsub("\r", "")
+  s = s:gsub("<!%-%-.-%-%->", "")
+  s = s:gsub("<summary>%s*(.-)%s*</summary>", "**%1**")
+  s = s:gsub("</?details>", "")
+  s = s:gsub("\n%s*\n[%s\n]*\n", "\n\n")
+  return vim.trim(s)
+end
+
 --- Replace the GitHub threads with fresh ones, keeping what the reviewer
 --- added to them.
 function M.set_github(nodes)
@@ -127,7 +139,7 @@ function M.set_github(nodes)
       local messages = vim.tbl_map(function(c)
         return {
           author = "@" .. (c.author and c.author.login or "ghost"),
-          body = c.body,
+          body = tidy(c.body),
           association = c.authorAssociation,
         }
       end, n.comments.nodes)
