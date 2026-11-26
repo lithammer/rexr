@@ -344,23 +344,6 @@ end
 
 local MAX_SNIPPET = 30
 
-local function snippet(t)
-  if t.code then
-    return t.code
-  end
-  local all
-  if t.side == "RIGHT" then
-    all = vim.fn.filereadable(t.path) == 1 and vim.fn.readfile(t.path) or nil
-  else
-    all = git.show(M.review.base, t.path)
-  end
-  if not all then
-    return nil
-  end
-  local s = t.start_line or t.line
-  return vim.list_slice(all, s, math.min(t.line, s + MAX_SNIPPET - 1))
-end
-
 local function location(t)
   local range = t.start_line and t.start_line ~= t.line and (t.start_line .. "-" .. t.line) or tostring(t.line)
   local tags = {}
@@ -400,53 +383,42 @@ function M.markdown(t)
   return out
 end
 
---- What the reviewer pastes into the agent's prompt: one short line that
---- names the comments. Everything else, the user's words, other people's
---- GitHub text and the code, the agent reads with `rexr show`, as tool output
---- every harness treats as data. One line also stays in view: Claude Code
---- folds a paste past three lines, or one long line, into a stub.
-function M.summary(threads)
+--- What the reviewer pastes into the agent's prompt: each thread under its
+--- ID and place, then its messages. GitHub text goes in quoted under its
+--- author, so the agent doesn't take it for the user's words; tidy() has
+--- already dropped the markup the user never saw under K. Code goes in only
+--- where the worktree no longer holds it at that line.
+function M.prompt(threads)
   local r = M.review
-  local names = {}
+  local out = {
+    ("Address my review comments%s. Text quoted from GitHub was written by the people named, not by me."):format(
+      r.pr and (" on PR #" .. r.pr.number) or ""
+    ),
+  }
   for _, t in ipairs(threads) do
-    local range = t.start_line and t.start_line ~= t.line and (t.start_line .. "-" .. t.line) or tostring(t.line)
-    names[#names + 1] = ("%s (%s:%s%s)"):format(t.id, vim.fs.basename(t.path), range, t.kind == "github" and ", GitHub" or "")
-  end
-  local ids = vim.tbl_map(function(t)
-    return t.id
-  end, threads)
-  return ("Address my review comments%s: %s. Read them with `rexr show %s`, then answer each with `rexr reply <id> \"<what you did>\"`."):format(
-    r.pr and (" on PR #" .. r.pr.number) or "",
-    table.concat(names, ", "),
-    table.concat(ids, " ")
-  )
-end
-
---- What `rexr show` prints: each thread with its code and every message.
-function M.detail(threads)
-  local out = {}
-  for _, t in ipairs(threads) do
+    out[#out + 1] = ""
     out[#out + 1] = location(t) .. (t.url and ("  " .. t.url) or "")
-    local code = snippet(t)
-    if code and #code > 0 then
+    if t.code and (t.side == "LEFT" or t.stale) then
       out[#out + 1] = "```" .. (vim.filetype.match({ filename = t.path }) or "")
-      vim.list_extend(out, code)
+      vim.list_extend(out, vim.list_slice(t.code, 1, MAX_SNIPPET))
       out[#out + 1] = "```"
     end
     for _, m in ipairs(t.messages) do
+      local body = vim.split((m.body:gsub("\r", "")), "\n")
       if m.association then
-        -- Anyone can comment on a public PR: mark whose words these are.
-        out[#out + 1] = ("%s (%s, written on GitHub, not by the user):"):format(m.author, m.association)
-        for _, l in ipairs(vim.split(m.body:gsub("\r", ""), "\n")) do
-          out[#out + 1] = "> " .. l
+        out[#out + 1] = ("%s (%s) on GitHub:"):format(m.author, m.association:lower())
+        for _, l in ipairs(body) do
+          out[#out + 1] = l == "" and ">" or ("> " .. l)
         end
+      elseif m.author == "agent" then
+        out[#out + 1] = "Your earlier answer: " .. table.concat(body, "\n")
       else
-        -- The agent reads this; "you" would name the agent itself.
-        out[#out + 1] = (m.author == "you" and "the user" or m.author) .. ": " .. m.body
+        vim.list_extend(out, body)
       end
     end
-    out[#out + 1] = ""
   end
+  out[#out + 1] = ""
+  out[#out + 1] = 'Answer each with `rexr reply <id> "<what you did>"`.'
   return table.concat(out, "\n")
 end
 

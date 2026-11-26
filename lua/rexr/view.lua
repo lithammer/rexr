@@ -366,7 +366,7 @@ local function send(threads)
   if #threads == 0 then
     return notify("nothing to send")
   end
-  local text = comments.summary(threads)
+  local text = comments.prompt(threads)
   local ok, err = agent.send(text)
   if ok then
     comments.mark_sent(threads)

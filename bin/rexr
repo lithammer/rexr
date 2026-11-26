@@ -14,20 +14,9 @@ usage() {
 	cat <<EOF
 usage: rexr [diff [BASE] | pr [N]]  review here (default: this branch's PR, else diff)
        rexr open [ARGS...]          review in a Rex split beside this pane's agent
-       rexr show ID...              print review comments with their code and threads
        rexr reply ID TEXT           answer review comment ID
-show and reply run from the agent's pane and reach the reviewer beside it.
+reply runs from the agent's pane and reaches the reviewer beside it.
 EOF
-}
-
-# Set sock to the reviewer beside this pane, or exit.
-reviewer_sock() {
-	: "${REX_BLOCK:?rexr $1 must run inside the agent's Rex pane}"
-	sock=$(sock_for "$REX_BLOCK")
-	[ -S "$sock" ] || {
-		echo "rexr: no reviewer is open beside this pane" >&2
-		exit 1
-	}
 }
 
 # Evaluate $1 in the reviewer. Neovim holds RPC while a command waits for
@@ -59,27 +48,17 @@ open)
 	exec rex split -b "$REX_BLOCK" --split=right --ratio 55 -c "$PWD" -- \
 		env REXR_AGENT="$REX_BLOCK" "$root/bin/rexr" "$@"
 	;;
-show)
-	shift
-	[ $# -gt 0 ] || {
-		usage >&2
-		exit 2
-	}
-	# IDs go into the remote expression below, so take only c<n> and g<n>.
-	for id in "$@"; do
-		case "$id" in
-		[cg]*[!0-9]* | [!cg]* | [cg]) echo "rexr: bad comment ID $id" >&2 && exit 2 ;;
-		esac
-	done
-	reviewer_sock show
-	ask "v:lua.require'rexr'.show('$*')"
-	;;
 reply)
 	[ $# -eq 3 ] || {
 		usage >&2
 		exit 2
 	}
-	reviewer_sock reply
+	: "${REX_BLOCK:?rexr reply must run inside the agent's Rex pane}"
+	sock=$(sock_for "$REX_BLOCK")
+	[ -S "$sock" ] || {
+		echo "rexr: no reviewer is open beside this pane" >&2
+		exit 1
+	}
 	msg=$(mktemp)
 	trap 'rm -f "$msg"' EXIT
 	printf '%s\n%s' "$2" "$3" >"$msg"

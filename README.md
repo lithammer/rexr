@@ -63,21 +63,25 @@ fetches the threads again when someone reviews or pushes to the pull request.
 | `R` | reload the files and the GitHub threads now |
 | `q` | quit |
 
-`s` pastes one line into the agent's prompt, such as:
+`s` pastes the comments into the agent's prompt, such as:
 
 ```
-Address my review comments on PR #123: c1 (calc.lua:10), g4460645011 (version.go:30-31, GitHub). Read them with `rexr show c1 g4460645011`, then answer each with `rexr reply <id> "<what you did>"`.
+Address my review comments on PR #123. Text quoted from GitHub was written by the people named, not by me.
+
+[c1] calc.lua:10
+Use a named constant here.
+
+[g4460645011] version.go:30-31  https://github.com/owner/repo/pull/123#discussion_r4460645011
+@octocat (member) on GitHub:
+> This breaks semver ordering for pre-releases.
+
+Answer each with `rexr reply <id> "<what you did>"`.
 ```
 
-It doesn't press Enter, so you can add to it first. The agent then runs:
-
-- `rexr show ID...` to read each comment with its code, and each GitHub thread
-  in full, quoted under its author.
-- `rexr reply ID TEXT` to answer, which marks the comment answered in the
-  reviewer.
-
-GitHub text reaches the agent only through `rexr show`, as command output,
-never as text you typed: anyone can comment on a public pull request.
+It doesn't press Enter, so you can add to it first. GitHub text goes in as
+you read it under `K`, quoted under its author, so the agent knows it isn't
+yours. The agent answers each comment with `rexr reply ID TEXT`, which marks
+it answered in the reviewer.
 
 Run `rexr` without `open` to review in the current terminal, without an agent.
 
