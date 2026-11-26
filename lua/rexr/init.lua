@@ -13,10 +13,14 @@ end
 
 local last -- the threads as last fetched, or the error
 local function fetch_threads(pr)
-  if not view.review then
+  local review = view.review
+  if not review then
     return
   end
   github.threads(pr, function(nodes, err)
+    if view.review ~= review then
+      return -- that review has ended, or another took its place
+    end
     local now = nodes and vim.inspect(nodes) or err -- inspect sorts keys
     if now == last then
       return -- no change, or the same failure: say it once

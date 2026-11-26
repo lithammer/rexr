@@ -56,14 +56,50 @@ local function file_of(buf)
   return f and f.status ~= "D" and f or nil
 end
 
--- Buffer-local maps on the files rexr draws on, taken off again with the
--- review. Navigation keeps Vim's own keys; actions sit on <localleader>.
-local maps ---@type { [1]: string|string[], [2]: string, [3]: string|function, [4]: string }[]
+-- Buffer-local maps on the files rexr draws on. Navigation keeps Vim's own
+-- keys; actions sit on <localleader>. The file's own maps on those keys,
+-- such as the LSP's K, are kept aside and put back with the review's end.
+local maps ---@type { [1]: string, [2]: string, [3]: string|function, [4]: string }[]
+local saved = {} ---@type table<integer, table[]> buffer → its own maps rexr covered
+
+local function map(buf)
+  if not saved[buf] then
+    saved[buf] = {}
+    vim.api.nvim_buf_call(buf, function()
+      for _, m in ipairs(maps) do
+        local own = vim.fn.maparg(m[2], m[1], false, true)
+        if own.buffer == 1 then
+          table.insert(saved[buf], own)
+        end
+      end
+    end)
+  end
+  for _, m in ipairs(maps) do
+    vim.keymap.set(m[1], m[2], m[3], { buffer = buf, desc = m[4] })
+  end
+end
 
 local function unmap(buf)
   for _, m in ipairs(maps) do
-    for _, mode in ipairs(type(m[1]) == "table" and m[1] or { m[1] }) do
-      pcall(vim.keymap.del, mode, m[2], { buffer = buf })
+    pcall(vim.keymap.del, m[1], m[2], { buffer = buf })
+  end
+  for _, own in ipairs(saved[buf] or {}) do
+    vim.api.nvim_buf_call(buf, function()
+      vim.fn.mapset(own)
+    end)
+  end
+  saved[buf] = nil
+  -- An LSP that attached while rexr's K stood skipped its hover map, as it
+  -- does for any K already there. Give it the one it would have set.
+  local has_k = vim.api.nvim_buf_call(buf, function()
+    return vim.fn.maparg("K", "n", false, true).buffer == 1
+  end)
+  if not has_k then
+    for _, client in ipairs(vim.lsp.get_clients({ bufnr = buf })) do
+      if client:supports_method("textDocument/hover") then
+        vim.keymap.set("n", "K", vim.lsp.buf.hover, { buffer = buf, desc = "vim.lsp.buf.hover()" })
+        break
+      end
     end
   end
 end
@@ -112,9 +148,7 @@ local function draw(buf, win)
     pcall(vim.treesitter.start, buf)
   end
   comments.render(buf, f.path, s.sides)
-  for _, m in ipairs(maps) do
-    vim.keymap.set(m[1], m[2], m[3], { buffer = buf, desc = m[4] })
-  end
+  map(buf)
 end
 
 --- Fit a window in the tab to the file it shows: fold what's far from any
@@ -571,16 +605,6 @@ local function autocmds()
         if s and s.hunks and in_tab(win) then
           unified.render(win, s.hunks, s.before)
         end
-      end
-    end,
-  })
-  -- The person's other editor, or the agent's, likely has a changed file
-  -- open, and its swap file would stop the review with E325 at every file.
-  vim.api.nvim_create_autocmd("SwapExists", {
-    group = group,
-    callback = function(ev)
-      if vim.api.nvim_get_current_tabpage() == M.tab and file_of(ev.buf) then
-        vim.v.swapchoice = "e"
       end
     end,
   })
