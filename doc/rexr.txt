@@ -26,8 +26,11 @@ directory, and ●N for comments not yet sent.
 A changed file shows as a unified diff over the real file: added lines are
 tinted, removed lines sit between them as virtual lines, and runs far from
 any change are folded (|zo|, |zR|). The buffer is the file itself, so
-treesitter and LSP work in it, and you can edit it; the diff redraws when
-the file is written, by you or the agent. The diff follows
+treesitter and LSP work in it. It opens 'readonly', as with |:view|: to
+edit, type anyway past the warning and write with |:w!|. The diff redraws
+when the file is written, by you or the agent. 'readonly' goes back to what
+it was when the review ends, and a file you were already editing, with
+unsaved changes, is left as it is. The diff follows
 'diffopt': its algorithm, "indent-heuristic", "linematch", whitespace
 options, and "inline:" for changed words.
 

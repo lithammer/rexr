@@ -104,7 +104,21 @@ local function unmap(buf)
   end
 end
 
---- Take rexr's drawing, comments and maps off `buf`.
+-- A review file opens 'readonly', as with :view: typing warns once (W10)
+-- and :w needs a !, so editing is a choice and the agent's writes reload
+-- into a buffer with no edits of its own. A buffer already holding unsaved
+-- edits is left as it is. The option is the buffer's, seen in every tab,
+-- so it goes back to what it was with the review's end.
+local was_readonly = {} ---@type table<integer, boolean>
+
+local function protect(buf)
+  if was_readonly[buf] == nil and vim.bo[buf].buftype == "" and not vim.bo[buf].modified then
+    was_readonly[buf] = vim.bo[buf].readonly
+    vim.bo[buf].readonly = true
+  end
+end
+
+--- Take rexr's drawing, comments, maps and 'readonly' off `buf`.
 local function clear(buf)
   M.shown[buf] = nil
   if vim.api.nvim_buf_is_valid(buf) then
@@ -113,7 +127,11 @@ local function clear(buf)
       vim.diagnostic.reset(ns, buf)
     end
     unmap(buf)
+    if was_readonly[buf] ~= nil then
+      vim.bo[buf].readonly = was_readonly[buf]
+    end
   end
+  was_readonly[buf] = nil
 end
 
 --- Draw the diff and the comments over `buf`, sized to `win`.
@@ -149,6 +167,7 @@ local function draw(buf, win)
   end
   comments.render(buf, f.path, s.sides)
   map(buf)
+  protect(buf)
 end
 
 --- Fit a window in the tab to the file it shows: fold what's far from any
