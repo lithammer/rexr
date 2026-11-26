@@ -10,22 +10,37 @@ local CONTEXT = 3
 -- background-only tints; a changed word's tint sits one above its line's.
 local TINT = 4000
 
--- Tint changed lines with the colour scheme's diff backgrounds alone. Its
--- DiffAdd may also set a foreground (the default one does), which would
--- paint over the syntax colours. The default DiffDelete has no background:
--- red text, no tint; fall back to the default palette's red then.
+-- How much of DiffAdd or DiffDelete a changed line's tint takes, the rest
+-- being Normal's background; changed words take all of it. Schemes made for
+-- :diffthis paint DiffAdd strong, as jellybeans' #437019, which over whole
+-- blocks of new code drowns the syntax. diffs.nvim mixes the same way.
+local MIX = 0.6
+
+local function mix(c, base)
+  local out = 0
+  for shift = 16, 0, -8 do
+    local a, b = bit.band(bit.rshift(c, shift), 0xff), bit.band(bit.rshift(base, shift), 0xff)
+    out = bit.bor(out, bit.lshift(math.floor(a * MIX + b * (1 - MIX) + 0.5), shift))
+  end
+  return out
+end
+
+-- Tint with backgrounds alone, so syntax colours show through. Changed words
+-- take the line's colour at full strength rather than DiffText, which some
+-- schemes mark by foreground alone, jellybeans with a black background. The
+-- default DiffDelete has no background, so fall back to the default palette.
 local function tints()
-  local function bg(name)
-    return vim.api.nvim_get_hl(0, { name = name, link = false }).bg
+  local function bg(name, fallback)
+    return vim.api.nvim_get_hl(0, { name = name, link = false }).bg or vim.api.nvim_get_color_by_name(fallback)
   end
   local dark = vim.o.background ~= "light"
-  vim.api.nvim_set_hl(0, "RexrAdded", { bg = bg("DiffAdd") or (dark and "NvimDarkGreen" or "NvimLightGreen") })
-  vim.api.nvim_set_hl(0, "RexrRemoved", { bg = bg("DiffDelete") or (dark and "NvimDarkRed" or "NvimLightRed") })
-  -- Changed words within a line, as :diffthis marks them: DiffTextAdd on
-  -- the new line, DiffText on the old one.
-  local text = bg("DiffText") or (dark and "NvimDarkCyan" or "NvimLightCyan")
-  vim.api.nvim_set_hl(0, "RexrAddedText", { bg = bg("DiffTextAdd") or text })
-  vim.api.nvim_set_hl(0, "RexrRemovedText", { bg = text })
+  local base = bg("Normal", dark and "NvimDarkGrey2" or "NvimLightGrey2")
+  local add = bg("DiffAdd", dark and "NvimDarkGreen" or "NvimLightGreen")
+  local del = bg("DiffDelete", dark and "NvimDarkRed" or "NvimLightRed")
+  vim.api.nvim_set_hl(0, "RexrAdded", { bg = mix(add, base) })
+  vim.api.nvim_set_hl(0, "RexrAddedText", { bg = add })
+  vim.api.nvim_set_hl(0, "RexrRemoved", { bg = mix(del, base) })
+  vim.api.nvim_set_hl(0, "RexrRemovedText", { bg = del })
 end
 tints()
 vim.api.nvim_create_autocmd("ColorScheme", { callback = tints })
