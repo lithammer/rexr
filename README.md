@@ -46,9 +46,8 @@ threads show in the line numbers, and the bar above the diff shows whether the
 agent is working, idle or waiting on you.
 
 The reviewer keeps up on its own: it reloads when the agent edits files, and
-fetches the threads again when someone reviews or pushes to the pull request,
-and each minute for five minutes after a push, when bots such as embark-bot
-resolve the threads it fixed. Resolved threads leave the reviewer.
+fetches the pull request's threads each minute, so new reviews come in and
+threads that someone, or a bot such as embark-bot, resolved leave.
 
 | Key | Does |
 | --- | --- |

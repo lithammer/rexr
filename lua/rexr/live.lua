@@ -1,5 +1,5 @@
 -- Keeps the reviewer current without the person pressing R: watches the
--- worktree, follows the agent's status, and hears new pull request reviews.
+-- worktree, follows the agent's status, and fetches pull request threads.
 local M = {}
 
 local watchers = {} ---@type table<string, uv.uv_fs_event_t>
@@ -113,39 +113,16 @@ function M.follow_agent(block, on_status)
   end)
 end
 
--- embark-bot resolves the threads a push fixed a few minutes after it,
--- and GitHub sends no event for a resolved thread, so after a push look
--- again for a while. On #59400 that took two to three minutes.
-local AFTER_PUSH_EVERY, AFTER_PUSH_TIMES = 60 * 1000, 5
-local after_push = assert(vim.uv.new_timer())
+-- GitHub's event stream, `gh event listen`, is a preview that is off for
+-- most accounts, and it sends nothing when a thread is resolved, as
+-- embark-bot does a few minutes after a push fixes one. So ask instead.
+local POLL = 60 * 1000
+local poll = assert(vim.uv.new_timer())
 
---- Call `on_event` when someone reviews or pushes to `pr`, and again each
---- minute for a few minutes after a push. GitHub's event subscriptions are
---- a preview that may be off for the account; then `gh` exits at once and
---- nothing is called.
----@param pr rexr.PR
-function M.follow_pr(pr, on_event)
-  stream({
-    "gh", "event", "listen", "--follow",
-    "--resource", pr.url,
-    "--event", "com.github.pull_request.review.submitted.v1,com.github.pull_request.head.changed.v1",
-  }, function(line)
-    local ok, ev = pcall(vim.json.decode, line)
-    if not ok or type(ev) ~= "table" then
-      return
-    end
-    on_event()
-    if ev.type == "com.github.pull_request.head.changed.v1" then
-      local left = AFTER_PUSH_TIMES
-      after_push:start(AFTER_PUSH_EVERY, AFTER_PUSH_EVERY, vim.schedule_wrap(function()
-        left = left - 1
-        if left == 0 then
-          after_push:stop()
-        end
-        on_event()
-      end))
-    end
-  end)
+--- Call `fetch` each minute, so new reviews come in and resolved threads
+--- leave without the person pressing R.
+function M.follow_pr(fetch)
+  poll:start(POLL, POLL, vim.schedule_wrap(fetch))
 end
 
 return M

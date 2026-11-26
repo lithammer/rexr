@@ -11,8 +11,14 @@ local function fail(msg)
   vim.notify("rexr: " .. msg, vim.log.levels.ERROR)
 end
 
+local last -- the threads as last fetched, or the error
 local function fetch_threads(pr)
   github.threads(pr, function(nodes, err)
+    local now = nodes and vim.inspect(nodes) or err -- inspect sorts keys
+    if now == last then
+      return -- no change, or the same failure: say it once
+    end
+    last = now
     if not nodes then
       return fail("cannot load PR comments: " .. err)
     end
@@ -80,7 +86,7 @@ function M.start(args)
       fetch_threads(review.pr)
     end
     fetch_threads(review.pr)
-    live.follow_pr(review.pr, view.on_refresh)
+    live.follow_pr(view.on_refresh)
   end
 end
 
