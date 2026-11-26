@@ -36,18 +36,21 @@ local S = vim.diagnostic.severity
 local function hint(d)
   return d.user_data and d.user_data.hint or d.message:match("[^\n]*")
 end
+-- A sign and a short hint per comment. Whatever a namespace leaves unset
+-- falls back to the person's global vim.diagnostic.config(), such as
+-- virtual_lines, which unfolds whole threads under the code; so set each.
+local function display(signs)
+  return {
+    signs = { text = signs },
+    virtual_text = { format = hint, prefix = "" },
+    virtual_lines = false,
+    underline = false,
+  }
+end
 -- Severity picks the sign: a pending draft warns, a GitHub thread informs,
 -- and anything settled (in chat, outdated) drops to a hint.
-vim.diagnostic.config({
-  signs = { text = { [S.WARN] = "●", [S.HINT] = "✓" } },
-  virtual_text = { format = hint, prefix = "" },
-  underline = false,
-}, M.ns.draft)
-vim.diagnostic.config({
-  signs = { text = { [S.INFO] = "◆", [S.HINT] = "◇" } },
-  virtual_text = { format = hint, prefix = "" },
-  underline = false,
-}, M.ns.github)
+vim.diagnostic.config(display({ [S.WARN] = "●", [S.HINT] = "✓" }), M.ns.draft)
+vim.diagnostic.config(display({ [S.INFO] = "◆", [S.HINT] = "◇" }), M.ns.github)
 
 local function store_path()
   local branch = git.branch():gsub("[^%w._-]", "_")

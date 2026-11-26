@@ -479,9 +479,12 @@ map = function(buf)
   n("[c", function() unified.jump(M.hunks or {}, -1) end, "previous change")
   n("[f", function() M.step(-1) end, "previous file")
   -- Only rexr's comments: the person's LSP may put its own diagnostics here.
-  local ns = vim.tbl_values(comments.ns)
-  n("]d", function() vim.diagnostic.jump({ count = 1, namespace = ns }) end, "next comment")
-  n("[d", function() vim.diagnostic.jump({ count = -1, namespace = ns }) end, "previous comment")
+  -- on_jump overrides their global jump config, whose float would repeat K.
+  local function jump(count)
+    vim.diagnostic.jump({ count = count, namespace = vim.tbl_values(comments.ns), on_jump = function() end })
+  end
+  n("]d", function() jump(1) end, "next comment")
+  n("[d", function() jump(-1) end, "previous comment")
   n("c", function() M.comment(vim.fn.line("."), vim.fn.line(".")) end, "comment")
   vim.keymap.set("x", "c", function()
     local l1, l2 = vim.fn.line("v"), vim.fn.line(".")
