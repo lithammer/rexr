@@ -1,4 +1,4 @@
--- The agent pane this reviewer sends to, set by `rexr open`.
+-- The agent pane this reviewer sends to: REXR_AGENT, set when it was opened.
 local M = { block = vim.env.REXR_AGENT ~= "" and vim.env.REXR_AGENT or nil }
 
 ---@return string? stdout, string? err
@@ -37,7 +37,7 @@ end
 ---@return boolean ok, string? err
 function M.send(text)
   if not M.block then
-    return false, "no agent pane (use rexr open)"
+    return false, "no agent pane: REXR_AGENT is unset"
   end
   local state, err = M.state()
   if not state then

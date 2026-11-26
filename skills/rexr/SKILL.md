@@ -5,8 +5,8 @@ description: Open the rexr reviewer, a Neovim diff and pull request viewer, in a
 
 # rexr
 
-`rexr` shows a diff or pull request in a clean Neovim in a Rex pane beside
-yours. The user reads it there, writes comments, and pastes them into your
+rexr is a Neovim plugin that shows a diff or pull request in a Rex pane
+beside yours. The user reads it there, writes comments, and pastes them into your
 prompt.
 
 ## Open the reviewer
@@ -14,10 +14,14 @@ prompt.
 Run from your own pane, in the repository:
 
 ```sh
-rexr open          # this branch's PR if it has one, else the diff against the default branch
-rexr open pr 123   # a given PR
-rexr open diff main
+rex split -b "$REX_BLOCK" --split=right --ratio 55 -c "$PWD" -- \
+  env REXR_AGENT="$REX_BLOCK" nvim +Rexr
 ```
+
+`+Rexr` reviews this branch's PR if it has one, else the diff against the
+default branch. For a given PR use `"+Rexr pr 123"`; for the diff against a
+revision, `"+Rexr diff main"`. `REXR_AGENT` names your pane, so the reviewer
+pastes comments into it.
 
 It opens the split and returns at once. Don't wait for the review. Tell the
 user it's open and carry on, or stop if you have nothing else to do.

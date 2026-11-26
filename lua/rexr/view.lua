@@ -27,7 +27,7 @@ rexr
   ]d [d    next / previous comment
   c        comment on line or visual range
   x        delete draft under cursor
-  K        show comments on this line
+  K        show comments on this line, else LSP hover
   s        send comments on this line to the agent (twice to resend)
   S        send all unsent drafts to the agent
   R        refresh files and GitHub threads
@@ -43,7 +43,9 @@ end
 
 local function load(name)
   local buf = vim.fn.bufadd(name)
-  vim.fn.bufload(buf)
+  -- The person's editor, or the agent's, likely has the file open, and its
+  -- swap file would stop bufload with E325. The reviewer doesn't edit.
+  vim.cmd(("noswapfile call bufload(%d)"):format(buf))
   return buf
 end
 
@@ -384,6 +386,9 @@ function M.show_threads()
   end
   local threads = comments.at(h.path, M.sides, h.lnum)
   if #threads == 0 then
+    if #vim.lsp.get_clients({ bufnr = 0 }) > 0 then
+      return vim.lsp.buf.hover()
+    end
     return notify("no comments on this line")
   end
   local lines, ids = {}, {}
@@ -473,6 +478,10 @@ map = function(buf)
   n("]c", function() unified.jump(M.hunks or {}, 1) end, "next change")
   n("[c", function() unified.jump(M.hunks or {}, -1) end, "previous change")
   n("[f", function() M.step(-1) end, "previous file")
+  -- Only rexr's comments: the person's LSP may put its own diagnostics here.
+  local ns = vim.tbl_values(comments.ns)
+  n("]d", function() vim.diagnostic.jump({ count = 1, namespace = ns }) end, "next comment")
+  n("[d", function() vim.diagnostic.jump({ count = -1, namespace = ns }) end, "previous comment")
   n("c", function() M.comment(vim.fn.line("."), vim.fn.line(".")) end, "comment")
   vim.keymap.set("x", "c", function()
     local l1, l2 = vim.fn.line("v"), vim.fn.line(".")

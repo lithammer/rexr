@@ -4,41 +4,43 @@ Review a diff or GitHub pull request in Neovim, in a [Rex] pane beside your
 coding agent, and send your comments and GitHub's review threads to the agent
 with a key press.
 
-rexr runs as `nvim --clean` with this repository on its runtimepath, so your
-Neovim config and plugins don't affect it. It works with any agent that runs in
-a terminal and has a shell: Claude Code, Codex and the like.
+rexr is a Neovim plugin, and it runs in your Neovim, with your colour scheme,
+parsers and LSP. It depends on no other plugin. It works with any agent that
+runs in a terminal and has a shell: Claude Code, Codex and the like.
 
 ## Install
 
 You need [Rex], Neovim 0.12 or later, and git. Reviewing pull requests also
 needs the [GitHub CLI] (`gh`), signed in.
 
-Clone this repository and put `bin/rexr` on your `PATH`:
+Add it to your Neovim config:
 
-```sh
-git clone <this repository> ~/src/rexr
-ln -s ~/src/rexr/bin/rexr ~/.local/bin/rexr
+```lua
+vim.pack.add({ { src = "<this repository>", name = "rexr" } })
 ```
 
 For Claude Code, also link the skill, so the agent can open the reviewer
 itself when you ask it to:
 
 ```sh
-ln -s ~/src/rexr/skills/rexr ~/.claude/skills/rexr
+ln -s ~/.local/share/nvim/site/pack/core/opt/rexr/skills/rexr ~/.claude/skills/rexr
 ```
 
-Other agents need no setup.
+Other agents need no setup beyond the command below.
 
 ## Use
 
 From the agent's Rex pane, in the repository, run (or ask the agent to run):
 
 ```sh
-rexr open          # this branch's pull request if it has one, else the diff
-                   # against where it forked from the default branch
-rexr open pr 123   # pull request 123
-rexr open diff main
+rex split -b "$REX_BLOCK" --split=right --ratio 55 -c "$PWD" -- \
+  env REXR_AGENT="$REX_BLOCK" nvim +Rexr
 ```
+
+`:Rexr` reviews this branch's pull request if it has one, else the diff
+against where it forked from the default branch. `:Rexr pr 123` reviews pull
+request 123, and `:Rexr diff main` the diff against `main`. `REXR_AGENT` names
+the agent's pane, so the reviewer knows where to paste.
 
 The reviewer opens in a split beside the agent: changed files as a tree on the
 left, and the selected file as a unified diff on the right. GitHub review
@@ -55,7 +57,7 @@ threads that someone, or a bot such as embark-bot, resolved leave.
 | `]f` `[f` | next or previous file |
 | `]c` `[c` | next or previous change |
 | `]d` `[d` | next or previous comment |
-| `K` | read the comments on this line; `K` again to scroll them |
+| `K` | read the comments on this line, or hover with your LSP; `K` again to enter the float |
 | `c` | write a comment on this line, or on a visual range; `:w` saves it |
 | `x` | delete your comment on this line |
 | `s` | send the comments on this line to the agent; twice to resend |
@@ -80,7 +82,8 @@ It doesn't press Enter, so you can add to it first. GitHub text goes in as
 you read it under `K`, quoted under its author, so the agent knows it isn't
 yours. Sent comments show as "in chat" and step back to a hint.
 
-Run `rexr` without `open` to review in the current terminal, without an agent.
+Run `nvim +Rexr` on its own to review in the current terminal, without an
+agent. Start it as its own Neovim: it takes over the window layout.
 
 ## Notes
 
@@ -88,8 +91,7 @@ Run `rexr` without `open` to review in the current terminal, without an agent.
   branch in `.git/rexr/`. rexr never posts to GitHub.
 - The diff follows your `'diffopt'`: algorithm, `indent-heuristic`,
   `linematch`, whitespace options and `inline:` for changed words.
-- Highlighting uses the treesitter parsers you installed under
-  `stdpath("data")/site`, with regex syntax for the rest.
+- Highlighting uses your treesitter parsers, with regex syntax for the rest.
 - Comments follow their code as the agent edits it. A comment whose code is
   gone, appears more than once, or is too short to recognise, such as a lone
   `}`, stays put and is marked "changed locally".
@@ -99,6 +101,9 @@ Run `rexr` without `open` to review in the current terminal, without an agent.
 ```sh
 for t in test/*_test.lua; do nvim --clean --headless -l "$t" || break; done
 ```
+
+The tests run under `nvim --clean`, with no config or plugins, so rexr can't
+come to lean on either.
 
 - `inline_test.lua`: rexr marks the same changed words as Neovim's own diff
   mode.
