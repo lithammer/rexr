@@ -1,8 +1,12 @@
-local M = {}
+local M = {
+  -- The repository's root once a review starts. Git runs there, not in
+  -- Neovim's working directory, which follows whichever tab is current.
+  cwd = nil, ---@type string?
+}
 
 ---@return string? stdout, string? err
 local function run(args)
-  local r = vim.system(vim.list_extend({ "git" }, args), { text = true }):wait()
+  local r = vim.system(vim.list_extend({ "git" }, args), { text = true, cwd = M.cwd }):wait()
   if r.code ~= 0 then
     return nil, vim.trim(r.stderr)
   end
@@ -17,9 +21,10 @@ local function lines(text)
   return out
 end
 
+--- The repository holding Neovim's working directory.
 function M.root()
-  local out = run({ "rev-parse", "--show-toplevel" })
-  return out and vim.trim(out)
+  local r = vim.system({ "git", "rev-parse", "--show-toplevel" }, { text = true }):wait()
+  return r.code == 0 and vim.trim(r.stdout) or nil
 end
 
 function M.git_dir()

@@ -1,4 +1,4 @@
--- Keeps the reviewer current without the person pressing R: watches the
+-- Keeps the review current without the person asking: watches the
 -- worktree, follows the agent's status, and fetches pull request threads.
 local M = {}
 
@@ -120,9 +120,24 @@ local POLL = 60 * 1000
 local poll = assert(vim.uv.new_timer())
 
 --- Call `fetch` each minute, so new reviews come in and resolved threads
---- leave without the person pressing R.
+--- leave without the person asking.
 function M.follow_pr(fetch)
   poll:start(POLL, POLL, vim.schedule_wrap(fetch))
+end
+
+--- Stop following everything: the worktree, the agent and the PR.
+function M.stop()
+  for _, w in pairs(watchers) do
+    w:stop()
+    w:close()
+  end
+  watchers = {}
+  settle:stop()
+  poll:stop()
+  for _, job in ipairs(jobs) do
+    job:kill("sigterm")
+  end
+  jobs = {}
 end
 
 return M

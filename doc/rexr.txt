@@ -1,0 +1,133 @@
+*rexr.txt*  Review a diff or pull request, and send comments to an agent
+
+==============================================================================
+CONTENTS                                                         *rexr*
+
+  1. Review ................................... |rexr-review|
+  2. Commands ................................. |rexr-commands|
+  3. Keys ..................................... |rexr-keys|
+  4. Comments ................................. |rexr-comments|
+  5. Agent .................................... |rexr-agent|
+  6. Highlights ............................... |rexr-highlights|
+
+==============================================================================
+1. REVIEW                                                  *rexr-review*
+
+A review opens in a tab of its own, or in the current one when it's empty,
+as after `nvim +Rexr`. Its working directory is the repository's root, set
+with |:tcd|.
+
+The changed files are the review window's |location-list|. Move between
+them as with any list: |]l| and |[l|, |:ll|, or <CR> in the list window,
+which |:lopen| brings back. Each entry shows the file's status (A added,
+M modified, D removed, R renamed, ? new and untracked), its name, its
+directory, and ●N for comments not yet sent.
+
+A changed file shows as a unified diff over the real file: added lines are
+tinted, removed lines sit between them as virtual lines, and runs far from
+any change are folded (|zo|, |zR|). The buffer is the file itself, so
+editing, |:w|, treesitter and LSP work as anywhere else. The diff follows
+'diffopt': its algorithm, "indent-heuristic", "linematch", whitespace
+options, and "inline:" for changed words.
+
+The review keeps up on its own. It reloads files when they change on disk,
+as an agent edits them, through |:checktime| and 'autoread', and fetches a
+pull request's review threads each minute.
+
+|:q| in the review window closes the tab, and |:tabclose| ends the review
+from anywhere. Opening another review ends the first.
+
+==============================================================================
+2. COMMANDS                                              *rexr-commands*
+
+                                                                 *:Rexr*
+:Rexr			Review this branch's pull request if it has one,
+			else the diff against where the branch forked from
+			the default branch.
+
+:Rexr pr [N]		Review pull request N, or this branch's. Needs the
+			GitHub CLI, `gh`, signed in.
+
+:Rexr diff [BASE]	Review the diff against BASE, any revision.
+
+In an open review:
+
+:[range]Rexr comment	Write a comment on the cursor's line, or [range],
+			in a float. |:w| saves it as a draft; `q` drops it.
+
+:[range]Rexr send	Send the comments on the cursor's line, or [range],
+			to the agent: yours and GitHub's.
+
+:Rexr send all		Send every draft not yet sent, from every file.
+
+:[range]Rexr resend	Send comments again that are already in chat, as
+			after clearing the agent's prompt.
+
+:Rexr delete		Delete your draft on the cursor's line.
+
+:Rexr comments		List every comment in a new location list.
+			|:lolder| goes back to the files.
+
+:Rexr refresh		Reload the files and fetch the threads now.
+
+==============================================================================
+3. KEYS                                                      *rexr-keys*
+
+On the changed files of an open review:
+
+  ]c  [c		next or previous change, as in diff mode
+  ]d  [d		next or previous comment
+  K			the comments on this line in a float; K again
+			enters it. Without comments: LSP hover, else |K|.
+  <localleader>c	|:Rexr| comment, on the line or visual range
+  <localleader>s	|:Rexr| send, on the line or visual range
+  <localleader>S	|:Rexr| send all
+  <localleader>x	|:Rexr| delete
+  g?			this help
+
+The files list uses the location list's own keys: |]l| |[l| and <CR>.
+See |maplocalleader| for <localleader>, a backslash by default.
+
+==============================================================================
+4. COMMENTS                                              *rexr-comments*
+
+Comments show in the sign column: ● your draft, ◆ a GitHub thread, and
+◇ or ✓ once it's in the agent's chat, or outdated. A short hint follows the
+line; K shows the thread.
+
+Your drafts are saved per branch in `.git/rexr/`. GitHub threads come from
+the pull request; resolved ones leave the review. rexr never posts to
+GitHub.
+
+A comment follows its code as the file changes. A comment whose code is
+gone, appears more than once, or is too short to recognise, such as a lone
+`}`, stays put and is marked "changed locally".
+
+==============================================================================
+5. AGENT                                                    *rexr-agent*
+
+rexr sends comments to a coding agent in another Rex pane, named by
+$REXR_AGENT. An agent opens the review beside itself with: >sh
+
+    rex split -b "$REX_BLOCK" --split=right --ratio 55 -c "$PWD" -- \
+      env REXR_AGENT="$REX_BLOCK" nvim +Rexr
+<
+Sending pastes the comments into the agent's prompt, on a line of their
+own, without pressing Enter. GitHub text goes in quoted under its author,
+so the agent knows it isn't yours. The winbar shows whether the agent is
+working, idle or waiting on you.
+
+Without an agent, sending copies the comments to the |quoteplus| register.
+
+==============================================================================
+6. HIGHLIGHTS                                          *rexr-highlights*
+
+RexrAdded		an added line: |hl-DiffAdd|'s background, mixed
+			into |hl-Normal|'s
+RexrAddedText		a changed word on an added line: |hl-DiffAdd|'s
+RexrRemoved		a removed line, from |hl-DiffDelete|, as RexrAdded
+RexrRemovedText		a changed word on a removed line
+
+rexr sets them on |ColorScheme|; set them after it to override.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:

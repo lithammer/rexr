@@ -79,6 +79,7 @@ end
 --- Load this branch's saved drafts and GitHub thread state.
 function M.setup(review)
   M.review = review
+  M.threads, M.next_id, M.github_sent = {}, 1, {}
   local ok, data = pcall(function()
     return vim.json.decode(table.concat(vim.fn.readfile(store_path()), "\n"))
   end)

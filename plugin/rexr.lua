@@ -1,10 +1,15 @@
 vim.api.nvim_create_user_command("Rexr", function(o)
-  require("rexr").start(o.fargs)
+  require("rexr").command(o)
 end, {
   nargs = "*",
-  desc = "Review a diff (diff [BASE]) or pull request (pr [N])",
+  range = true,
+  desc = "Review a diff or pull request, and act on it: see :help rexr",
   complete = function(_, line)
-    return #vim.split(line, "%s+") <= 2 and { "diff", "pr" } or {}
+    local words = vim.split(line, "%s+")
+    if #words <= 2 then
+      return require("rexr").subcommands
+    end
+    return words[2] == "send" and #words == 3 and { "all" } or {}
   end,
 })
 

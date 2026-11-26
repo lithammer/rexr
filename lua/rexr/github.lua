@@ -29,16 +29,16 @@ query($owner: String!, $name: String!, $number: Int!) {
 ---@field headRefOid string
 ---@field baseRefName string
 
---- The pull request numbered `number`, or the current branch's.
+--- The pull request numbered `number`, or the branch's checked out in `root`.
 ---@return rexr.PR?, string? err
-function M.pr(number)
+function M.pr(number, root)
   local cmd = { "gh", "pr", "view" }
   if number then
     cmd[#cmd + 1] = tostring(number)
   end
   vim.list_extend(cmd, { "--json", "number,title,url,headRefOid,baseRefName" })
   local ok, r = pcall(function()
-    return vim.system(cmd, { text = true }):wait()
+    return vim.system(cmd, { text = true, cwd = root }):wait()
   end)
   if not ok then
     return nil, "gh is not installed"

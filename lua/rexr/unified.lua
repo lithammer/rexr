@@ -389,6 +389,10 @@ function M.render(win, hunks, before)
   end
 end
 
+function M.clear(buf)
+  vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+end
+
 --- Draw a buffer whose every line was removed.
 function M.render_removed(buf)
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)

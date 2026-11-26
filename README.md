@@ -42,30 +42,34 @@ against where it forked from the default branch. `:Rexr pr 123` reviews pull
 request 123, and `:Rexr diff main` the diff against `main`. `REXR_AGENT` names
 the agent's pane, so the reviewer knows where to paste.
 
-The reviewer opens in a split beside the agent: changed files as a tree on the
-left, and the selected file as a unified diff on the right. GitHub review
-threads show in the line numbers, and the bar above the diff shows whether the
-agent is working, idle or waiting on you.
+The review opens in a tab, here the only one: the changed files in the
+location list below, and the selected file as a unified diff over the real
+file, so editing, `:w` and your LSP work in it. GitHub review threads show in
+the line numbers, and the bar above the diff shows whether the agent is
+working, idle or waiting on you.
 
-The reviewer keeps up on its own: it reloads when the agent edits files, and
+The review keeps up on its own: it reloads when the agent edits files, and
 fetches the pull request's threads each minute, so new reviews come in and
 threads that someone, or a bot such as embark-bot, resolved leave.
 
-| Key | Does |
+| Key or command | Does |
 | --- | --- |
-| `<CR>` | open the file under the cursor in the tree |
-| `]f` `[f` | next or previous file |
+| `]l` `[l`, `<CR>` in the list | next, previous or chosen file |
 | `]c` `[c` | next or previous change |
 | `]d` `[d` | next or previous comment |
-| `K` | read the comments on this line, or hover with your LSP; `K` again to enter the float |
-| `c` | write a comment on this line, or on a visual range; `:w` saves it |
-| `x` | delete your comment on this line |
-| `s` | send the comments on this line to the agent; twice to resend |
-| `S` | send all your unsent comments |
-| `R` | reload the files and the GitHub threads now |
-| `q` | quit |
+| `K` | read the comments on this line, else hover with your LSP; `K` again to enter the float |
+| `\c`, `:Rexr comment` | write a comment on this line, or on a visual range; `:w` saves it |
+| `\s`, `:Rexr send` | send the comments on this line, or range, to the agent |
+| `\S`, `:Rexr send all` | send all your unsent comments |
+| `:Rexr resend` | send comments already in chat again |
+| `\x`, `:Rexr delete` | delete your comment on this line |
+| `:Rexr comments` | list every comment; `:lolder` goes back to the files |
+| `:Rexr refresh` | reload the files and the GitHub threads now |
+| `:q`, `:tabclose` | end the review |
+| `g?` | `:help rexr` |
 
-`s` pastes the comments into the agent's prompt, such as:
+`\` is your `<localleader>`. Sending pastes the comments into the agent's
+prompt, such as:
 
 ```
 Address my review comments on PR #123. Text quoted from GitHub was written by the people named, not by me.
@@ -82,8 +86,9 @@ It doesn't press Enter, so you can add to it first. GitHub text goes in as
 you read it under `K`, quoted under its author, so the agent knows it isn't
 yours. Sent comments show as "in chat" and step back to a hint.
 
-Run `nvim +Rexr` on its own to review in the current terminal, without an
-agent. Start it as its own Neovim: it takes over the window layout.
+`:Rexr` also works in the Neovim you already have open, without an agent: the
+review gets a tab of its own, and sending copies the comments to the `+`
+register instead.
 
 ## Notes
 
@@ -91,10 +96,8 @@ agent. Start it as its own Neovim: it takes over the window layout.
   branch in `.git/rexr/`. rexr never posts to GitHub.
 - The diff follows your `'diffopt'`: algorithm, `indent-heuristic`,
   `linematch`, whitespace options and `inline:` for changed words.
-- Highlighting uses your treesitter parsers, with regex syntax for the rest.
-- Comments follow their code as the agent edits it. A comment whose code is
-  gone, appears more than once, or is too short to recognise, such as a lone
-  `}`, stays put and is marked "changed locally".
+- `:help rexr` covers the rest: comments that follow their code, the
+  highlight groups, and the agent.
 
 ## Test
 
